@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { collection, query, onSnapshot, addDoc } from 'firebase/firestore';
+import { collection, query, onSnapshot,addDoc } from 'firebase/firestore';
 import { db } from './firebase';
 import { Send, Bell, Users, CarFront } from 'lucide-react';
 
@@ -83,17 +83,22 @@ export default function Notifications() {
 
     setIsSending(true);
     try {
-      await addDoc(collection(db, 'notifications'), {
-        title,
-        body,
-        targetAudience: audience,
-        targetScope: scope,
-        targetIds: scope === 'specific' ? selectedUsers : [],
-        timestamp: new Date().getTime(),
-        status: 'sent'
-      });
+      const targetIds = scope === 'specific' ? selectedUsers : usersList.map(u => u.id);
 
-      alert('تم إرسال الإشعار بنجاح! ✅');
+      const promises = targetIds.map(userId => 
+        addDoc(collection(db, 'notifications'), {
+          userId: userId,
+          title: title,
+          message: body, 
+          timestamp: new Date().getTime(),
+          read: false,
+          targetAudience: audience
+        })
+      );
+
+      await Promise.all(promises);
+
+      alert('تم إرسال الإشعار بنجاح! سيظهر في تطبيق الموبايل فوراً ✅');
       setTitle('');
       setBody('');
       setSelectedUsers([]);

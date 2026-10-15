@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { doc, getDoc, setDoc, updateDoc, arrayUnion, arrayRemove, collection, getDocs } from 'firebase/firestore';
+import { doc, getDoc, setDoc, updateDoc, arrayUnion, arrayRemove, collection, getDocs, addDoc } from 'firebase/firestore';
 import { db } from './firebase'; 
 import { Ticket, Plus, Trash2, Tag, Calendar, RefreshCw, Users, Search, CheckSquare, Square } from 'lucide-react';
 
@@ -75,7 +75,7 @@ export default function PromoCodes() {
     }
   };
 
-  // دالة الحفظ
+  // دالة الحفظ وإرسال الإشعارات الفعلية
   const handleAddPromo = async () => {
     if (!code || !discountValue || !expiryDate) {
       alert('يرجى تعبئة جميع الحقول الأساسية!');
@@ -103,6 +103,41 @@ export default function PromoCodes() {
       const docRef = doc(db, 'app_settings', 'pricing');
       await setDoc(docRef, { promoCodes: arrayUnion(newPromo) }, { merge: true });
 
+      // 2. إرسال الإشعارات للموبايل
+      let targetUsers: string[] = [];
+      if (scope === 'specific') {
+        targetUsers = selectedUsers;
+      } else {
+        targetUsers = passengers.map(p => p.id);
+      }
+
+      const discountText = discountType === 'fixed' ? 'جنيه' : '%';
+      
+      // 💡 تظبيط شكل التاريخ (يوم-شهر-سنة) هنا مباشرة قبل الإرسال
+      let formattedExpiry = expiryDate;
+      if (expiryDate) {
+        const parts = expiryDate.split('-');
+        if (parts.length === 3) {
+          formattedExpiry = `${parts[2]}-${parts[1]}-${parts[0]}`;
+        }
+      }
+      
+      // عمل حلقة لإنشاء إشعار لكل راكب
+      const notificationPromises = targetUsers.map(userId => 
+        addDoc(collection(db, 'notifications'), {
+          userId: userId,
+          userType: 'passenger',
+          title: 'هدية خصم من براق! 🎉',
+          // 🚀 الرسالة الجديدة المضاف ليها تاريخ الصلاحية
+          message: `مبروك! حصلت على خصم بقيمة ${discountValue} ${discountText}. استخدم الكود: ${newPromo.code} (صالح حتى: ${formattedExpiry})`,
+          read: false,
+          timestamp: new Date().getTime()
+        })
+      );
+
+      // تنفيذ كل الإشعارات في نفس اللحظة
+      await Promise.all(notificationPromises);
+
       setPromos([...promos, newPromo]);
       
       // تصفير الحقول
@@ -113,11 +148,7 @@ export default function PromoCodes() {
       setSelectedUsers([]);
       setSearchQuery('');
       
-      alert('تم إرسال الكود بنجاح للركاب المحددين! 🎉');
-      
-      // 💡 ملحوظة للإشعارات:
-      // بمجرد حفظ الكود هنا، شاشة "النافذة المنبثقة (تهانينا)" في الموبايل
-      // هتظهر وقتي (Real-time) للمستخدم لو هو فاتح التطبيق.
+      alert('تم حفظ الكود وإرسال الإشعارات بنجاح للركاب! 🎉');
       
     } catch (error) {
       console.error('خطأ أثناء الحفظ:', error);
@@ -139,6 +170,16 @@ export default function PromoCodes() {
   };
 
   if (loading) return <p style={{ textAlign: 'center', padding: '40px' }}>جاري تحميل البيانات...</p>;
+
+  // دالة بسيطة لتحويل وتعديل شكل التاريخ من YYYY-MM-DD إلى DD-MM-YYYY
+  const formatDate = (dateStr: string) => {
+    if (!dateStr) return '';
+    const parts = dateStr.split('-');
+    if (parts.length === 3) {
+      return `${parts[2]}-${parts[1]}-${parts[0]}`; // يوم - شهر - سنة
+    }
+    return dateStr;
+  };
 
   return (
     <div className="card" style={{ maxWidth: '900px', margin: '0 auto' }}>
@@ -266,7 +307,7 @@ export default function PromoCodes() {
                 <td style={{ padding: '12px', color: '#64748b', fontSize: '14px' }}>
                   {p.scope === 'all' ? 'الكل' : `مخصص (${p.selectedUsers?.length || 0} ركاب)`}
                 </td>
-                <td style={{ padding: '12px' }}>{p.expiryDate}</td>
+                <td style={{ padding: '12px' }}>{formatDate(p.expiryDate)}</td>
                 <td style={{ padding: '12px' }}>
                   <button onClick={() => handleDeletePromo(p)} style={{ backgroundColor: '#ef4444', color: 'white', border: 'none', padding: '8px 12px', borderRadius: '6px', cursor: 'pointer' }}><Trash2 size={16} /></button>
                 </td>

@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, NavLink, Navigate } from 'react-router-dom';
 import { signOut } from 'firebase/auth';
 import { auth } from './firebase';
-import { LayoutDashboard, Users, CarFront, TicketPercent, Settings, BellRing, LogOut, ShieldCheck, UserCircle } from 'lucide-react';
+import { LayoutDashboard, Users, CarFront, TicketPercent, Settings, BellRing, LogOut, ShieldCheck, UserCircle, FileCheck } from 'lucide-react';
 import { useAuth } from './AuthProvider';
 
 import Home from './Home';
@@ -12,6 +12,7 @@ import Passengers from './Passengers';
 import Promos from './Promos';
 import Notifications from './Notifications';
 import StaffManagement from './StaffManagement';
+import VerificationRequests from './VerificationRequests';
 
 export default function App() {
   const { user, roleData } = useAuth();
@@ -58,6 +59,13 @@ export default function App() {
             {canView('promos') && <NavLink to="/promos" className={({ isActive }) => isActive ? "nav-item active" : "nav-item"}><TicketPercent size={20} /> أكواد الخصم</NavLink>}
             {canView('notifications') && <NavLink to="/notifications" className={({ isActive }) => isActive ? "nav-item active" : "nav-item"}><BellRing size={20} /> الإشعارات</NavLink>}
             {canView('settings') && <NavLink to="/settings" className={({ isActive }) => isActive ? "nav-item active" : "nav-item"}><Settings size={20} /> الإعدادات</NavLink>}
+
+            {/* 📋 زر مراجعة الطلبات والوثائق */}
+            {(isAdmin || canView('verification')) && (
+              <NavLink to="/verification" className={({ isActive }) => isActive ? "nav-item active" : "nav-item"}>
+                <FileCheck size={20} /> مراجعة الطلبات
+              </NavLink>
+            )}
 
             {/* 🛡️ زر إدارة الموظفين بيظهر للأدمن فقط */}
             {isAdmin && (
@@ -108,6 +116,7 @@ export default function App() {
               {canView('promos') && <Route path="/promos" element={<Promos />} />}
               {canView('notifications') && <Route path="/notifications" element={<Notifications />} />}
               {canView('settings') && <Route path="/settings" element={<SettingsPage />} />}
+              {(isAdmin || canView('verification')) && <Route path="/verification" element={<VerificationRequests />} />}
               
               {isAdmin && <Route path="/staff" element={<StaffManagement />} />}
               
