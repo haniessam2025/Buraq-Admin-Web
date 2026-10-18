@@ -19,25 +19,33 @@ export default function Settings() {
   const [peakStartTime, setPeakStartTime] = useState('14:00');
   const [peakEndTime, setPeakEndTime] = useState('17:00');
 
-  // إعدادات بوابات الدفع
+// إعدادات بوابات الدفع
   const [isCashEnabled, setIsCashEnabled] = useState(true);
   const [isWalletEnabled, setIsWalletEnabled] = useState(true);
   const [isInstapayEnabled, setIsInstapayEnabled] = useState(true);
 
+  // إعدادات التسعير 💰
+  const defaultPricing = {
+    car: { baseFare: 15, minFare: 20, commission: 10, tiers: [{ upToKm: 5, price: 4.4 }, { upToKm: 999, price: 4.0 }] },
+    tuktuk: { baseFare: 10, minFare: 15, commission: 8, tiers: [{ upToKm: 5, price: 6.5 }, { upToKm: 999, price: 6.0 }] },
+    scooter: { baseFare: 12, minFare: 12, commission: 10, tiers: [{ upToKm: 5, price: 3.75 }, { upToKm: 999, price: 3.5 }] }
+  };
+  const [pricingData, setPricingData] = useState<any>(defaultPricing);
+
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
-  useEffect(() => {
+useEffect(() => {
     const fetchSettings = async () => {
       try {
-        const docRef = doc(db, 'settings', 'pricing');
+        // نستخدم مسار app_settings/pricing المطابق للتطبيق الموبايل
+        const docRef = doc(db, 'app_settings', 'pricing');
         const docSnap = await getDoc(docRef);
         if (docSnap.exists()) {
           const data = docSnap.data();
           
           setIsMaintenanceEnabled(data.isMaintenanceEnabled || false);
           
-          // سحب بيانات ضوابط النظام
           setDebtLimit(data.debtLimit || '-50');
           setWaitingTime(data.waitingTime || '5');
           setSearchRadius(data.searchRadius || '5');
@@ -51,6 +59,13 @@ export default function Settings() {
           setIsCashEnabled(data.isCashEnabled ?? true);
           setIsWalletEnabled(data.isWalletEnabled ?? true);
           setIsInstapayEnabled(data.isInstapayEnabled ?? true);
+
+          // قراءة إعدادات الأسعار لو موجودة
+          setPricingData({
+            car: data.car || defaultPricing.car,
+            tuktuk: data.tuktuk || defaultPricing.tuktuk,
+            scooter: data.scooter || defaultPricing.scooter
+          });
         }
       } catch (error) {
         console.error("خطأ في جلب الإعدادات: ", error);
@@ -63,7 +78,7 @@ export default function Settings() {
   const handleSave = async () => {
     setSaving(true);
     try {
-      await setDoc(doc(db, 'settings', 'pricing'), {
+      await setDoc(doc(db, 'app_settings', 'pricing'), {
         isMaintenanceEnabled,
         debtLimit,
         waitingTime,
@@ -76,14 +91,46 @@ export default function Settings() {
         isCashEnabled,
         isWalletEnabled,
         isInstapayEnabled,
+        car: pricingData.car,
+        tuktuk: pricingData.tuktuk,
+        scooter: pricingData.scooter,
         updatedAt: new Date().getTime()
       }, { merge: true });
-      alert('تم حفظ جميع الإعدادات بنجاح! ✅');
+      alert('تم حفظ جميع الإعدادات وتسعيرة الرحلات بنجاح! ✅ ستُطبق فوراً في التطبيق.');
     } catch (error) {
       console.error("خطأ أثناء الحفظ: ", error);
       alert('حدث خطأ أثناء الحفظ، حاول مرة أخرى.');
     }
     setSaving(false);
+  };
+
+  const updatePricingCategory = (category: string, field: string, value: any) => {
+    setPricingData((prev: any) => ({
+      ...prev,
+      [category]: { ...prev[category], [field]: value }
+    }));
+  };
+
+  const updateTier = (category: string, tierIndex: number, field: string, value: any) => {
+    setPricingData((prev: any) => {
+      const newTiers = [...prev[category].tiers];
+      newTiers[tierIndex] = { ...newTiers[tierIndex], [field]: value };
+      return { ...prev, [category]: { ...prev[category], tiers: newTiers } };
+    });
+  };
+
+  const addTier = (category: string) => {
+    setPricingData((prev: any) => ({
+      ...prev,
+      [category]: { ...prev[category], tiers: [...prev[category].tiers, { upToKm: '', price: '' }] }
+    }));
+  };
+
+  const removeTier = (category: string, index: number) => {
+    setPricingData((prev: any) => ({
+      ...prev,
+      [category]: { ...prev[category], tiers: prev[category].tiers.filter((_: any, i: number) => i !== index) }
+    }));
   };
 
   const ToggleSwitch = ({ enabled, onChange, danger = false }: { enabled: boolean, onChange: () => void, danger?: boolean }) => (
@@ -203,7 +250,52 @@ export default function Settings() {
           </div>
         </div>
       </div>
+{/* --- 💰 قسم إعدادات التسعير --- */}
+      <div style={{ backgroundColor: '#0f172a', padding: '25px', borderRadius: '12px', border: '1px solid #334155', marginBottom: '25px', color: 'white' }}>
+        <h3 style={{ margin: '0 0 20px 0', textAlign: 'center', color: '#f8fafc', fontSize: '20px' }}>إعدادات تسعير الرحلات 💰</h3>
+        
+        {['car', 'tuktuk', 'scooter'].map((cat) => {
+          const catName = cat === 'car' ? 'السيارات 🚗' : cat === 'tuktuk' ? 'بديل التوكتوك 🛺' : 'سكوتر 🛵';
+          const currentData = pricingData[cat];
+          return (
+            <div key={cat} style={{ backgroundColor: '#1e293b', padding: '20px', borderRadius: '12px', border: '1px solid #475569', marginBottom: '20px' }}>
+              <h4 style={{ textAlign: 'right', marginTop: 0, color: '#e2e8f0', fontSize: '18px' }}>{catName}</h4>
+              
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: '15px', marginBottom: '20px' }}>
+                <div style={{ flex: 1, textAlign: 'center' }}>
+                  <label style={{ display: 'block', color: '#94a3b8', marginBottom: '8px', fontSize: '14px' }}>الأدنى (ج)</label>
+                  <input type="number" value={currentData.minFare} onChange={(e) => updatePricingCategory(cat, 'minFare', Number(e.target.value))} style={{ width: '100%', padding: '10px', borderRadius: '8px', backgroundColor: '#0f172a', border: '1px solid #334155', color: 'white', textAlign: 'center', fontWeight: 'bold' }} />
+                </div>
+                <div style={{ flex: 1, textAlign: 'center' }}>
+                  <label style={{ display: 'block', color: '#94a3b8', marginBottom: '8px', fontSize: '14px' }}>الأساسي (ج)</label>
+                  <input type="number" value={currentData.baseFare} onChange={(e) => updatePricingCategory(cat, 'baseFare', Number(e.target.value))} style={{ width: '100%', padding: '10px', borderRadius: '8px', backgroundColor: '#0f172a', border: '1px solid #334155', color: 'white', textAlign: 'center', fontWeight: 'bold' }} />
+                </div>
+                <div style={{ flex: 1, textAlign: 'center' }}>
+                  <label style={{ display: 'block', color: '#94a3b8', marginBottom: '8px', fontSize: '14px' }}>العمولة (%)</label>
+                  <input type="number" value={currentData.commission} onChange={(e) => updatePricingCategory(cat, 'commission', Number(e.target.value))} style={{ width: '100%', padding: '10px', borderRadius: '8px', backgroundColor: '#0f172a', border: '1px solid #334155', color: '#f59e0b', textAlign: 'center', fontWeight: 'bold' }} />
+                </div>
+              </div>
 
+              <div style={{ backgroundColor: '#0f172a', padding: '15px', borderRadius: '10px', border: '1px solid #334155' }}>
+                <h5 style={{ marginTop: 0, color: '#cbd5e1', textAlign: 'right' }}>تسعيرة الكيلو بالشرائح 📊:</h5>
+                {currentData.tiers.map((tier: any, idx: number) => (
+                  <div key={idx} style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '10px', marginBottom: '10px' }}>
+                    <button onClick={() => removeTier(cat, idx)} style={{ backgroundColor: '#ef4444', color: 'white', border: 'none', borderRadius: '50%', width: '25px', height: '25px', cursor: 'pointer', marginRight: 'auto' }}>✖</button>
+                    <span style={{ color: '#cbd5e1' }}>ج</span>
+                    <input type="number" value={tier.price} onChange={(e) => updateTier(cat, idx, 'price', e.target.value)} style={{ width: '70px', padding: '8px', borderRadius: '6px', backgroundColor: '#1e293b', border: '1px solid #475569', color: 'white', textAlign: 'center' }} placeholder="السعر" />
+                    <span style={{ color: '#cbd5e1' }}>كم، بسعر</span>
+                    <input type="number" value={tier.upToKm} onChange={(e) => updateTier(cat, idx, 'upToKm', e.target.value)} style={{ width: '70px', padding: '8px', borderRadius: '6px', backgroundColor: '#1e293b', border: '1px solid #475569', color: 'white', textAlign: 'center' }} placeholder="كم" />
+                    <span style={{ color: '#cbd5e1' }}>إلى</span>
+                  </div>
+                ))}
+                <button onClick={() => addTier(cat)} style={{ backgroundColor: '#3b82f6', color: 'white', border: 'none', padding: '8px 15px', borderRadius: '6px', cursor: 'pointer', marginTop: '10px' }}>➕ إضافة شريحة</button>
+                <p style={{ fontSize: '12px', color: '#64748b', textAlign: 'right', marginTop: '15px', marginBottom: 0 }}>اكتب 999 في خانة المسافة للشريحة الأخيرة (المفتوحة)
+</p>
+              </div>
+            </div>
+          );
+        })}
+      </div>
       {/* --- قسم أوقات الذروة --- */}
       <div style={{ backgroundColor: '#f8fafc', padding: '25px', borderRadius: '12px', border: '1px solid #e2e8f0', marginBottom: '25px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '25px' }}>
