@@ -1,10 +1,10 @@
+import TripLostItemsPage from './TripLostItemsPage';
 import { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, NavLink, Navigate } from 'react-router-dom';
 import { signOut } from 'firebase/auth';
 import { auth, db } from './firebase'; 
 import { collection, query, where, onSnapshot } from 'firebase/firestore'; 
-import { LayoutDashboard, Users, CarFront, TicketPercent, Settings, BellRing, LogOut, ShieldCheck, UserCircle, FileCheck, MessageSquare, AlertTriangle } from 'lucide-react';
-import { useAuth } from './AuthProvider';
+import { LayoutDashboard, Users, CarFront, TicketPercent, Settings, BellRing, LogOut, ShieldCheck, UserCircle, FileCheck, MessageSquare, AlertTriangle, Search } from 'lucide-react';import { useAuth } from './AuthProvider';
 
 import Home from './Home';
 import Captains from './Captains';
@@ -30,6 +30,7 @@ export default function App() {
   // ==========================================
   const [unreadSupport, setUnreadSupport] = useState(0);
   const [unreadComplaints, setUnreadComplaints] = useState(0);
+  const [unreadTripLost, setUnreadTripLost] = useState(0); // 👈 عداد مفقودات الرحلات الجديد
   const [newVerification, setNewVerification] = useState(0);
   const [newCaptains, setNewCaptains] = useState(0);
   const [newPassengers, setNewPassengers] = useState(0);
@@ -41,11 +42,13 @@ export default function App() {
       const validUnread = snap.docs.filter(doc => ['passenger', 'captain'].includes(doc.data().senderType));
       setUnreadSupport(validUnread.length);
     });
-
+    
     // 1.5. مراقبة الشكاوى والمقترحات
     const qComplaints = query(collection(db, 'complaints_tickets'), where('isReadAdmin', '==', false));
     const unsubComplaints = onSnapshot(qComplaints, (snap) => setUnreadComplaints(snap.docs.length));
-
+    // 1.6. مراقبة مفقودات الرحلات الجديدة غير المقروءة
+    const qTripLost = query(collection(db, 'trip_lost_items'), where('isReadAdmin', '==', false));
+    const unsubTripLost = onSnapshot(qTripLost, (snap) => setUnreadTripLost(snap.docs.length));
     // 2. مراقبة طلبات التوثيق الجديدة
     const qVerification = query(collection(db, 'captains'), where('verificationStatus', '==', 'pending'));
     const unsubVerification = onSnapshot(qVerification, (snap) => setNewVerification(snap.docs.length));
@@ -64,6 +67,7 @@ export default function App() {
       unsubVerification();
       unsubCaptains();
       unsubPassengers();
+      unsubTripLost();
     };
   }, []);
 
@@ -105,8 +109,16 @@ export default function App() {
                 <Users size={20} /> الركاب
                 {newPassengers > 0 && <span className="notification-badge">{newPassengers}</span>}
               </NavLink>
+              
             )}
-
+            {/* 👈 زر مفقودات الرحلات */}
+            {/* 👈 زر مفقودات الرحلات مع الإشعار اللحظي واللون الأصفر */}
+            {(isAdmin || canView('trip_lost')) && (
+              <NavLink to="/trip-lost-items" className={({ isActive }) => `nav-item ${isActive ? "active" : ""} ${unreadTripLost > 0 ? "highlight-yellow" : ""}`} style={{ position: 'relative' }}>
+                <Search size={20} /> مفقودات الرحلات
+                {unreadTripLost > 0 && <span className="notification-badge">{unreadTripLost}</span>}
+              </NavLink>
+            )}
             {canView('promos') && <NavLink to="/promos" className={({ isActive }) => isActive ? "nav-item active" : "nav-item"}><TicketPercent size={20} /> أكواد الخصم</NavLink>}
             {canView('notifications') && <NavLink to="/notifications" className={({ isActive }) => isActive ? "nav-item active" : "nav-item"}><BellRing size={20} /> الإشعارات</NavLink>}
             
@@ -117,10 +129,10 @@ export default function App() {
               </NavLink>
             )}
 
-            {/* 👈 زر الشكاوى والمقترحات */}
+            {/* 👈  زر الشكاوى والمقترحات والمفقودات */}
             {(isAdmin || canView('complaints')) && (
               <NavLink to="/complaints" className={({ isActive }) => `nav-item ${isActive ? "active" : ""} ${unreadComplaints > 0 ? "highlight-yellow" : ""}`} style={{ position: 'relative' }}>
-                <AlertTriangle size={20} /> الشكاوى والمقترحات
+                <AlertTriangle size={20} />   الشكاوى والمقترحات والمفقودات
                 {unreadComplaints > 0 && <span className="notification-badge">{unreadComplaints}</span>}
               </NavLink>
             )}
@@ -177,6 +189,7 @@ export default function App() {
               {canView('promos') && <Route path="/promos" element={<Promos />} />}
               {canView('notifications') && <Route path="/notifications" element={<Notifications />} />}
               {canView('settings') && <Route path="/settings" element={<SettingsPage />} />}
+              {(isAdmin || canView('trip_lost')) && <Route path="/trip-lost-items" element={<TripLostItemsPage />} />}
               {(isAdmin || canView('verification')) && <Route path="/verification" element={<VerificationRequests />} />}
               {(isAdmin || canView('support')) && <Route path="/support" element={<SupportPage />} />} 
               {(isAdmin || canView('complaints')) && <Route path="/complaints" element={<ComplaintsPage />} />} 
