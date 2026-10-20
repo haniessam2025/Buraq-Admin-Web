@@ -3,7 +3,7 @@ import { BrowserRouter as Router, Routes, Route, NavLink, Navigate } from 'react
 import { signOut } from 'firebase/auth';
 import { auth, db } from './firebase'; 
 import { collection, query, where, onSnapshot } from 'firebase/firestore'; 
-import { LayoutDashboard, Users, CarFront, TicketPercent, Settings, BellRing, LogOut, ShieldCheck, UserCircle, FileCheck, MessageSquare } from 'lucide-react';
+import { LayoutDashboard, Users, CarFront, TicketPercent, Settings, BellRing, LogOut, ShieldCheck, UserCircle, FileCheck, MessageSquare, AlertTriangle } from 'lucide-react';
 import { useAuth } from './AuthProvider';
 
 import Home from './Home';
@@ -15,12 +15,12 @@ import StaffManagement from './StaffManagement';
 import VerificationRequests from './VerificationRequests';
 import SettingsPage from './Settings';
 import SupportPage from './SupportPage';
+import ComplaintsPage from './ComplaintsPage';
 
 export default function App() {
   const { user, roleData } = useAuth();
   const [showLogout, setShowLogout] = useState(false);
 
-  // 🔴🔴 إيميل الأدمن الرئيسي 🔴🔴
   const ADMIN_EMAIL = 'haniessam@gmail.com'; 
   const isAdmin = roleData?.role === 'admin' || user?.email?.toLowerCase() === ADMIN_EMAIL.toLowerCase();
   const canView = (page: string) => isAdmin || (roleData?.allowedPages && roleData.allowedPages.includes(page));
@@ -29,26 +29,22 @@ export default function App() {
   // 🌟 نظام مراقبة الإشعارات اللحظي (Real-time) 🌟
   // ==========================================
   const [unreadSupport, setUnreadSupport] = useState(0);
+  const [unreadComplaints, setUnreadComplaints] = useState(0);
   const [newVerification, setNewVerification] = useState(0);
   const [newCaptains, setNewCaptains] = useState(0);
   const [newPassengers, setNewPassengers] = useState(0);
 
- useEffect(() => {
-    // 1. مراقبة تذاكر الدعم الفني + المحادثات المباشرة
-    let ticketsCount = 0;
-    let chatsCount = 0;
-
+  useEffect(() => {
+    // 1. مراقبة الدعم الفني
     const qSupport = query(collection(db, 'support_tickets'), where('isReadAdmin', '==', false));
     const unsubSupport = onSnapshot(qSupport, (snap) => {
-      ticketsCount = snap.docs.filter(doc => ['passenger', 'captain'].includes(doc.data().senderType)).length;
-      setUnreadSupport(ticketsCount + chatsCount);
+      const validUnread = snap.docs.filter(doc => ['passenger', 'captain'].includes(doc.data().senderType));
+      setUnreadSupport(validUnread.length);
     });
 
-    const qChats = query(collection(db, 'support_chats'), where('unreadAdmin', '==', true));
-    const unsubChats = onSnapshot(qChats, (snap) => {
-      chatsCount = snap.docs.filter(doc => ['passenger', 'captain'].includes(doc.data().userType)).length;
-      setUnreadSupport(ticketsCount + chatsCount);
-    });
+    // 1.5. مراقبة الشكاوى والمقترحات
+    const qComplaints = query(collection(db, 'complaints_tickets'), where('isReadAdmin', '==', false));
+    const unsubComplaints = onSnapshot(qComplaints, (snap) => setUnreadComplaints(snap.docs.length));
 
     // 2. مراقبة طلبات التوثيق الجديدة
     const qVerification = query(collection(db, 'captains'), where('verificationStatus', '==', 'pending'));
@@ -62,17 +58,15 @@ export default function App() {
     const qPassengers = query(collection(db, 'passengers'), where('isReviewed', '==', false));
     const unsubPassengers = onSnapshot(qPassengers, (snap) => setNewPassengers(snap.docs.length));
 
-    // 👇 السطر اللي كنت بقولك عليه اهو متضاف جاهز ومكتوب فيه unsubChats()
     return () => {
       unsubSupport();
-      unsubChats(); // 👈 ضفناها هنا
+      unsubComplaints();
       unsubVerification();
       unsubCaptains();
       unsubPassengers();
     };
   }, []);
 
-  // لو حساب ملوش أي صلاحيات خالص
   if (!roleData && !isAdmin) {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', height: '100vh', backgroundColor: '#f1f5f9' }}>
@@ -91,7 +85,6 @@ export default function App() {
     <Router>
       <div className="dashboard-container">
         
-        {/* القائمة الجانبية */}
         <aside className="sidebar">
           <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', marginBottom: '30px', padding: '0 20px' }}>
             <div className="sidebar-logo" style={{ margin: 0, fontSize: '24px' }}>بُرَاق | التحكم</div>
@@ -100,7 +93,6 @@ export default function App() {
           <nav>
             {canView('home') && <NavLink to="/" className={({ isActive }) => isActive ? "nav-item active" : "nav-item"}><LayoutDashboard size={20} /> الرئيسية</NavLink>}
             
-            {/* 🚙 الكباتن */}
             {canView('captains') && (
               <NavLink to="/captains" className={({ isActive }) => `nav-item ${isActive ? "active" : ""} ${newCaptains > 0 ? "highlight-yellow" : ""}`} style={{ position: 'relative' }}>
                 <CarFront size={20} /> الكباتن
@@ -108,7 +100,6 @@ export default function App() {
               </NavLink>
             )}
 
-            {/* 👥 الركاب */}
             {canView('passengers') && (
               <NavLink to="/passengers" className={({ isActive }) => `nav-item ${isActive ? "active" : ""} ${newPassengers > 0 ? "highlight-yellow" : ""}`} style={{ position: 'relative' }}>
                 <Users size={20} /> الركاب
@@ -119,7 +110,6 @@ export default function App() {
             {canView('promos') && <NavLink to="/promos" className={({ isActive }) => isActive ? "nav-item active" : "nav-item"}><TicketPercent size={20} /> أكواد الخصم</NavLink>}
             {canView('notifications') && <NavLink to="/notifications" className={({ isActive }) => isActive ? "nav-item active" : "nav-item"}><BellRing size={20} /> الإشعارات</NavLink>}
             
-            {/* 🎧 الدعم الفني */}
             {(isAdmin || canView('support')) && (
               <NavLink to="/support" className={({ isActive }) => `nav-item ${isActive ? "active" : ""} ${unreadSupport > 0 ? "highlight-yellow" : ""}`} style={{ position: 'relative' }}>
                 <MessageSquare size={20} /> الدعم الفني
@@ -127,9 +117,16 @@ export default function App() {
               </NavLink>
             )}
 
+            {/* 👈 زر الشكاوى والمقترحات */}
+            {(isAdmin || canView('complaints')) && (
+              <NavLink to="/complaints" className={({ isActive }) => `nav-item ${isActive ? "active" : ""} ${unreadComplaints > 0 ? "highlight-yellow" : ""}`} style={{ position: 'relative' }}>
+                <AlertTriangle size={20} /> الشكاوى والمقترحات
+                {unreadComplaints > 0 && <span className="notification-badge">{unreadComplaints}</span>}
+              </NavLink>
+            )}
+
             {canView('settings') && <NavLink to="/settings" className={({ isActive }) => isActive ? "nav-item active" : "nav-item"}><Settings size={20} /> الإعدادات</NavLink>}
             
-            {/* 📋 مراجعة الطلبات */}
             {(isAdmin || canView('verification')) && (
               <NavLink to="/verification" className={({ isActive }) => `nav-item ${isActive ? "active" : ""} ${newVerification > 0 ? "highlight-yellow" : ""}`} style={{ position: 'relative' }}>
                 <FileCheck size={20} /> مراجعة الطلبات
@@ -137,7 +134,6 @@ export default function App() {
               </NavLink>
             )}
 
-            {/* 🛡️ إدارة الموظفين */}
             {isAdmin && (
               <NavLink to="/staff" className={({ isActive }) => isActive ? "nav-item active" : "nav-item"} style={{ borderTop: '1px solid #334155', marginTop: '10px', paddingTop: '20px' }}>
                 <ShieldCheck size={20} color="#10b981" /> إدارة الموظفين
@@ -146,10 +142,7 @@ export default function App() {
           </nav>
         </aside>
 
-        {/* محتوى الشاشات */}
         <main className="main-content" style={{ display: 'flex', flexDirection: 'column' }}>
-          
-          {/* الهيدر */}
           <header style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '20px', position: 'relative' }}>
             <div 
               onClick={() => setShowLogout(!showLogout)}
@@ -164,7 +157,6 @@ export default function App() {
               <UserCircle size={36} color={isAdmin ? "#3b82f6" : "#10b981"} />
             </div>
 
-            {/* قائمة تسجيل الخروج */}
             {showLogout && (
               <div style={{ position: 'absolute', top: '60px', left: '0', backgroundColor: 'white', border: '1px solid #e2e8f0', borderRadius: '8px', boxShadow: '0 4px 6px rgba(0,0,0,0.1)', padding: '10px', zIndex: 1000, minWidth: '200px' }}>
                 <button 
@@ -177,7 +169,6 @@ export default function App() {
             )}
           </header>
 
-          {/* راوتس الشاشات */}
           <div style={{ flex: 1 }}>
             <Routes>
               {canView('home') && <Route path="/" element={<Home />} />}
@@ -188,6 +179,7 @@ export default function App() {
               {canView('settings') && <Route path="/settings" element={<SettingsPage />} />}
               {(isAdmin || canView('verification')) && <Route path="/verification" element={<VerificationRequests />} />}
               {(isAdmin || canView('support')) && <Route path="/support" element={<SupportPage />} />} 
+              {(isAdmin || canView('complaints')) && <Route path="/complaints" element={<ComplaintsPage />} />} 
               
               {isAdmin && <Route path="/staff" element={<StaffManagement />} />}
               
@@ -198,7 +190,6 @@ export default function App() {
         </main>
       </div>
 
-      {/* 🌟 استايلات الإشعارات 🌟 */}
       <style>{`
         .highlight-yellow {
           background-color: #fef08a !important; 
