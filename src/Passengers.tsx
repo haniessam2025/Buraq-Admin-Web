@@ -146,8 +146,10 @@ export default function Passengers() {
                   <td>
                     {passenger.isBlocked ? (
                       <span style={{ color: '#ef4444', fontWeight: 'bold' }}>محظور 🚫</span>
+                    ) : passenger.isOnline ? (
+                      <span style={{ color: '#10b981', fontWeight: 'bold' }}>🟢 أونلاين</span>
                     ) : (
-                      <span style={{ color: '#10b981', fontWeight: 'bold' }}>نشط ✅</span>
+                      <span style={{ color: '#ef4444', fontWeight: 'bold' }}>🔴 أوفلاين</span>
                     )}
                   </td>
                   <td>

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { collection, query, where, onSnapshot, orderBy, doc, updateDoc } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, getDocs, orderBy, doc, updateDoc,  } from 'firebase/firestore';
 import { db } from './firebase';
 import { Activity, CarFront, MapPin, CheckCircle, Clock, RefreshCw } from 'lucide-react';
 
@@ -31,37 +31,51 @@ export default function Home() {
     };
   }, []);
 
- // 🔄 دالة تحديث الرادار (تعمل ريفريش للبيانات فقط دون إخراج أي كابتن)
+ // 🔄 دالة تحديث وتنظيف الرادار
   const handleRefreshAndClean = async () => {
     setIsCleaning(true);
-    
     try {
-      // 1. إعادة جلب الكباتن الأونلاين
+      // تحديد المهلة الزمنية (10 دقائق) - يمكنك تعديلها
+      const THRESHOLD_MINUTES = 10;
+      const thresholdTime = Date.now() - (THRESHOLD_MINUTES * 60 * 1000);
+
       const qCaptains = query(collection(db, 'captains'), where('isOnline', '==', true));
-      const unsubCaptains = onSnapshot(qCaptains, (snap) => {
-        setOnlineCaptains(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      const snapshot = await getDocs(qCaptains);
+
+      let cleanedCount = 0;
+
+      const updatePromises = snapshot.docs.map(async (captainDoc) => {
+        const data = captainDoc.data();
+        let lastActive = 0;
+
+        // معالجة ذكية لحقل الوقت أياً كانت صيغته في فايربيز
+        if (data.timestamp) {
+          if (typeof data.timestamp === 'number') {
+            lastActive = data.timestamp; // لو كان رقم Milliseconds
+          } else if (typeof data.timestamp.toMillis === 'function') {
+            lastActive = data.timestamp.toMillis(); // لو كان Firestore Timestamp
+          }
+        }
+
+        // إذا كان آخر تحديث أقدم من المهلة المحددة، حوله لأوفلاين
+        if (lastActive > 0 && lastActive < thresholdTime) {
+          cleanedCount++;
+          return updateDoc(doc(db, 'captains', captainDoc.id), {
+            isOnline: false,
+          });
+        }
       });
 
-      // 2. إعادة جلب الرحلات
-      const qRides = query(collection(db, 'rides'), orderBy('timestamp', 'desc'));
-      const unsubRides = onSnapshot(qRides, (snap) => {
-        const allRides = snap.docs.map(d => ({ id: d.id, ...d.data() } as any));
-        
-        setPendingRides(allRides.filter(r => r.status === 'pending' || r.status === 'searching'));
-        setActiveRides(allRides.filter(r => ['accepted', 'captain_arrived', 'passenger_on_the_way', 'waiting_for_scan', 'in_progress'].includes(r.status)));
-        setCompletedRides(allRides.filter(r => r.status === 'completed' || r.status === 'canceled'));
-      });
+      await Promise.all(updatePromises);
       
-      // نوقف الاستماع مؤقتاً عشان نحسس المستخدم إن فيه حاجة حصلت، ثم نشغله تاني
-      setTimeout(() => {
-        unsubCaptains();
-        unsubRides();
-        // ده هيفك التعليقة ويرجع كل البيانات الحقيقية من غير ما يمس الداتابيز
-      }, 500);
-
+      if (cleanedCount > 0) {
+        alert(`تم التنظيف! تم تحويل ${cleanedCount} كابتن غير نشط إلى أوفلاين.`);
+      } else {
+        alert('الرادار نظيف! جميع الكباتن في القائمة متصلين بالفعل.');
+      }
     } catch (error) {
-      console.error('خطأ أثناء التحديث:', error);
-      alert('حدث خطأ أثناء محاولة تحديث الرادار.');
+      console.error("Error cleaning radar:", error);
+      alert("حدث خطأ أثناء تنظيف الرادار.");
     } finally {
       setIsCleaning(false);
     }

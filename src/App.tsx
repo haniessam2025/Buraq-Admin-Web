@@ -28,16 +28,24 @@ export default function App() {
   const isAdmin = roleData?.role === 'admin' || user?.email?.toLowerCase() === ADMIN_EMAIL.toLowerCase();
   const canView = (page: string) => isAdmin || (roleData?.allowedPages && roleData.allowedPages.includes(page));
 
-  const [unreadSupport, setUnreadSupport] = useState(0);
+  const [unreadSupportChats, setUnreadSupportChats] = useState(0);
+  const [unreadSupportTickets, setUnreadSupportTickets] = useState(0);
+  const unreadSupport = unreadSupportChats + unreadSupportTickets; // إجمالي كل رسايل الدعم
   const [unreadComplaints, setUnreadComplaints] = useState(0);
   const [unreadTripLost, setUnreadTripLost] = useState(0);
   const [newVerification, setNewVerification] = useState(0);
-  const [newCaptains, setNewCaptains] = useState(0);
-  const [newPassengers, setNewPassengers] = useState(0);
+  // 🟢 متغيرات عدد الأونلاين
+  const [onlineCaptains, setOnlineCaptains] = useState(0);
+  const [onlinePassengers, setOnlinePassengers] = useState(0);
 
   useEffect(() => {
-    const qSupport = query(collection(db, 'support_chats'), where('unreadAdmin', '==', true));
-    const unsubSupport = onSnapshot(qSupport, (snap) => setUnreadSupport(snap.docs.length));
+    // 🟢 قراءة الشات المباشر
+    const qSupportChats = query(collection(db, 'support_chats'), where('unreadAdmin', '==', true));
+    const unsubSupportChats = onSnapshot(qSupportChats, (snap) => setUnreadSupportChats(snap.docs.length));
+    
+    // 🟢 قراءة تذاكر ورسائل الكباتن والركاب
+    const qSupportTickets = query(collection(db, 'support_tickets'), where('isReadAdmin', '==', false));
+    const unsubSupportTickets = onSnapshot(qSupportTickets, (snap) => setUnreadSupportTickets(snap.docs.length));
     
     const qComplaints = query(collection(db, 'complaints_tickets'), where('isReadAdmin', '==', false));
     const unsubComplaints = onSnapshot(qComplaints, (snap) => setUnreadComplaints(snap.docs.length));
@@ -48,19 +56,20 @@ export default function App() {
     const qVerification = query(collection(db, 'captains'), where('verificationStatus', '==', 'pending'));
     const unsubVerification = onSnapshot(qVerification, (snap) => setNewVerification(snap.docs.length));
 
-    const qCaptains = query(collection(db, 'captains'), where('isReviewed', '==', false));
-    const unsubCaptains = onSnapshot(qCaptains, (snap) => setNewCaptains(snap.docs.length));
+    // 🟢 قراءة الكباتن والركاب الأونلاين
+    const qOnlineCaptains = query(collection(db, 'captains'), where('isOnline', '==', true));
+    const unsubOnlineCaptains = onSnapshot(qOnlineCaptains, (snap) => setOnlineCaptains(snap.docs.length));
 
-    const qPassengers = query(collection(db, 'passengers'), where('isReviewed', '==', false));
-    const unsubPassengers = onSnapshot(qPassengers, (snap) => setNewPassengers(snap.docs.length));
+    const qOnlinePassengers = query(collection(db, 'passengers'), where('isOnline', '==', true));
+    const unsubOnlinePassengers = onSnapshot(qOnlinePassengers, (snap) => setOnlinePassengers(snap.docs.length));
 
     return () => {
-      unsubSupport();
-      unsubComplaints();
+unsubSupportChats();
+      unsubSupportTickets();      unsubComplaints();
       unsubVerification();
-      unsubCaptains();
-      unsubPassengers();
       unsubTripLost();
+      unsubOnlineCaptains();
+      unsubOnlinePassengers();
     };
   }, []);
 
@@ -84,9 +93,9 @@ export default function App() {
       {canView('home') && <NavLink to="/" onClick={() => setIsMobileMenuOpen(false)} className={({ isActive }) => isActive ? "nav-item active" : "nav-item"}><LayoutDashboard size={20} /> الرئيسية</NavLink>}
       
       {canView('captains') && (
-        <NavLink to="/captains" onClick={() => setIsMobileMenuOpen(false)} className={({ isActive }) => `nav-item ${isActive ? "active" : ""} ${newCaptains > 0 ? "highlight-yellow" : ""}`} style={{ position: 'relative' }}>
+        <NavLink to="/captains" onClick={() => setIsMobileMenuOpen(false)} className={({ isActive }) => `nav-item ${isActive ? "active" : ""} ${onlineCaptains > 0 ? "highlight-yellow" : ""}`} style={{ position: 'relative' }}>
           <CarFront size={20} /> الكباتن
-          {newCaptains > 0 && <span className="notification-badge">{newCaptains}</span>}
+          {onlineCaptains > 0 && <span className="notification-badge">{onlineCaptains}</span>}
         </NavLink>
       )}
 
@@ -97,9 +106,9 @@ export default function App() {
       )}
 
       {canView('passengers') && (
-        <NavLink to="/passengers" onClick={() => setIsMobileMenuOpen(false)} className={({ isActive }) => `nav-item ${isActive ? "active" : ""} ${newPassengers > 0 ? "highlight-yellow" : ""}`} style={{ position: 'relative' }}>
+        <NavLink to="/passengers" onClick={() => setIsMobileMenuOpen(false)} className={({ isActive }) => `nav-item ${isActive ? "active" : ""} ${onlinePassengers > 0 ? "highlight-yellow" : ""}`} style={{ position: 'relative' }}>
           <Users size={20} /> الركاب
-          {newPassengers > 0 && <span className="notification-badge">{newPassengers}</span>}
+          {onlinePassengers > 0 && <span className="notification-badge">{onlinePassengers}</span>}
         </NavLink>
       )}
       
@@ -111,7 +120,7 @@ export default function App() {
       )}
       
       {canView('promos') && <NavLink to="/promos" onClick={() => setIsMobileMenuOpen(false)} className={({ isActive }) => isActive ? "nav-item active" : "nav-item"}><TicketPercent size={20} /> أكواد الخصم</NavLink>}
-      {canView('notifications') && <NavLink to="/notifications" onClick={() => setIsMobileMenuOpen(false)} className={({ isActive }) => isActive ? "nav-item active" : "nav-item"}><BellRing size={20} /> الإشعارات</NavLink>}
+      {canView('notifications') && <NavLink to="/notifications" onClick={() => setIsMobileMenuOpen(false)} className={({ isActive }) => isActive ? "nav-item active" : "nav-item"}><BellRing size={20} /> إرسال الإشعارات</NavLink>}
       
       {(isAdmin || canView('support')) && (
         <NavLink to="/support" onClick={() => setIsMobileMenuOpen(false)} className={({ isActive }) => `nav-item ${isActive ? "active" : ""} ${unreadSupport > 0 ? "highlight-yellow" : ""}`} style={{ position: 'relative' }}>

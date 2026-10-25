@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { collection, getDocs, doc, updateDoc, arrayUnion } from 'firebase/firestore';
+import { collection, getDocs, doc, updateDoc, arrayUnion, query, orderBy, limit } from 'firebase/firestore';
 import { db } from './firebase'; 
 import { ShieldCheck, UserCheck, UserX, CheckCircle2 } from 'lucide-react';
 
@@ -38,6 +38,29 @@ export default function VerificationRequests() {
     fetchRequests();
   }, [tab, roleTab]);
 
+// دالة لجلب أكبر رقم تسلسلي متسجل للكباتن
+  const getNextKyotNumber = async () => {
+    try {
+      const q = query(
+        collection(db, 'captains'),
+        orderBy('vehicleSequenceNumber', 'desc'),
+        limit(1)
+      );
+      const snapshot = await getDocs(q);
+      let nextNumber = 100; // لو مفيش حد هيبدأ من 100
+      
+      if (!snapshot.empty) {
+        const highestDoc = snapshot.docs[0].data();
+        const highestNumber = highestDoc.vehicleSequenceNumber || 100;
+        nextNumber = highestNumber + 1; // بيزود 1 على آخر وأكبر رقم
+      }
+      return nextNumber;
+    } catch (error) {
+      console.error("خطأ في جلب الرقم التسلسلي:", error);
+      return null;
+    }
+  };
+
   const handleApprove = async (item: any) => {
     if (!window.confirm('هل أنت متأكد من قبول هذا الطلب؟')) return;
 
@@ -45,13 +68,39 @@ export default function VerificationRequests() {
       const collectionName = roleTab === 'driver' ? 'captains' : 'passengers';
       const docRef = doc(db, collectionName, item.id);
 
-      const updateData: any = tab === 'register' 
-        ? { verificationStatus: 'approved', status: 'active' }
-        : { updateStatus: 'approved' }; 
+      let updateData: any = {};
+      let nextNum: number | null = null; // عرفنا المتغير بره عشان نستخدمه في الرسالة
+      
+      if (tab === 'register') {
+        updateData = { verificationStatus: 'approved', status: 'active' };
+        
+        // لو اللي بيتقبل ده كابتن، ونوع مركبته كيوت أو بديل توكتوك
+        if (roleTab === 'driver' && (item.vehicleCategory === 'tuktuk_alt' || item.vehicleCategory === 'كيوت')) {
+          nextNum = await getNextKyotNumber();
+          if (nextNum) {
+            updateData.vehicleSequenceNumber = nextNum;
+            updateData.vehicleNumber = String(nextNum);
+          }
+        }
+      } else {
+        updateData = { updateStatus: 'approved' };
+      }
+
+      // تحديد نص الرسالة بناءً على وجود رقم كودي
+      let notificationBody = '';
+      if (tab === 'register') {
+        if (nextNum) {
+          notificationBody = `مبروك لقد تمت الموافقة على حسابك ورقمك الكودي هو (${nextNum}) يمكنك الآن استقبال الرحلات بنجاح.`;
+        } else {
+          notificationBody = 'مبارك! تم اعتماد حسابك بنجاح ويمكنك بدء العمل الآن.';
+        }
+      } else {
+        notificationBody = 'تم قبول تعديلات الملف الشخصي بنجاح.';
+      }
 
       const notification = {
         title: 'تم قبول طلبك! 🎉',
-        body: tab === 'register' ? 'مبارك! تم اعتماد حسابك بنجاح ويمكنك بدء العمل الآن.' : 'تم قبول تعديلات الملف الشخصي بنجاح.',
+        body: notificationBody,
         timestamp: new Date().getTime(),
         read: false
       };
@@ -68,8 +117,7 @@ export default function VerificationRequests() {
       alert('حدث خطأ أثناء تنفيذ العملية.');
     }
   };
-
-  const handleReject = async (item: any) => {
+const handleReject = async (item: any) => {
     const reason = rejectReason[item.id] || 'لم يتم ذكر سبب محدد';
     if (!window.confirm(`هل أنت متأكد من رفض الطلب بسبب: "${reason}"؟`)) return;
 
@@ -101,7 +149,6 @@ export default function VerificationRequests() {
       alert('حدث خطأ أثناء تنفيذ العملية.');
     }
   };
-
   return (
     <div className="card" style={{ maxWidth: '1100px', margin: '0 auto', padding: '20px' }}>
       

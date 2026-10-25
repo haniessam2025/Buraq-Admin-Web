@@ -21,12 +21,6 @@ export default function SupportPage() {
       const chatsData = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
       setLiveChats(chatsData);
       
-      if (activeTab === 'live') {
-        chatsData.forEach((chat: any) => {
-          if (chat.unreadAdmin) updateDoc(doc(db, 'support_chats', chat.id), { unreadAdmin: false }).catch(() => {});
-        });
-      }
-
       if (activeTab === 'live' && selectedItem) {
         const updated = chatsData.find(c => c.id === selectedItem.id);
         if (updated) setSelectedItem(updated);
@@ -38,16 +32,6 @@ export default function SupportPage() {
       const ticketsData = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
       setTickets(ticketsData);
       setLoading(false);
-
-      if (activeTab === 'passenger_tickets') {
-        ticketsData.filter((t: any) => (t.userType === 'passenger' || t.senderType === 'passenger') && !t.isReadAdmin).forEach((t: any) => {
-          updateDoc(doc(db, 'support_tickets', t.id), { isReadAdmin: true }).catch(() => {});
-        });
-      } else if (activeTab === 'captain_tickets') {
-        ticketsData.filter((t: any) => (t.userType === 'captain' || t.senderType === 'captain') && !t.isReadAdmin).forEach((t: any) => {
-          updateDoc(doc(db, 'support_tickets', t.id), { isReadAdmin: true }).catch(() => {});
-        });
-      }
 
       if (activeTab !== 'live' && selectedItem) {
         const updated = ticketsData.find(t => t.id === selectedItem.id);
@@ -130,6 +114,16 @@ export default function SupportPage() {
     } catch (error) { alert("حدث خطأ أثناء إرسال الرد."); }
   };
 
+  // الدالة دي بتمسح الإشعار بس لما تدوس على الرسالة وتقرأها فعلياً
+  const handleSelectItem = (item: any) => {
+    setSelectedItem(item);
+    if (activeTab === 'live' && item.unreadAdmin) {
+      updateDoc(doc(db, 'support_chats', item.id), { unreadAdmin: false }).catch(() => {});
+    } else if (activeTab !== 'live' && !item.isReadAdmin) {
+      updateDoc(doc(db, 'support_tickets', item.id), { isReadAdmin: true }).catch(() => {});
+    }
+  };
+
   const formatTime = (timestamp: any) => {
     if (!timestamp) return '';
     const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
@@ -146,18 +140,31 @@ export default function SupportPage() {
     ? liveChats 
     : tickets.filter((t: any) => (t.userType || t.senderType) === (activeTab === 'passenger_tickets' ? 'passenger' : 'captain'));
 
+  // حساب الرسائل غير المقروءة بدقة
+  const unreadLiveCount = liveChats.filter(c => c.unreadAdmin).length;
+  const unreadPassengerTickets = tickets.filter(t => (t.userType === 'passenger' || t.senderType === 'passenger') && !t.isReadAdmin).length;
+  const unreadCaptainTickets = tickets.filter(t => (t.userType === 'captain' || t.senderType === 'captain') && !t.isReadAdmin).length;
+
   return (
     <div style={{ padding: '20px', maxWidth: '1400px', margin: '0 auto', height: 'calc(100vh - 100px)', display: 'flex', flexDirection: 'column' }}>
       
       <div style={{ display: 'flex', gap: '15px', marginBottom: '20px' }}>
-        <button onClick={() => setActiveTab('live')} style={{ flex: 1, padding: '15px', borderRadius: '12px', border: 'none', backgroundColor: activeTab === 'live' ? '#3b82f6' : 'white', color: activeTab === 'live' ? 'white' : '#64748b', fontWeight: 'bold', fontSize: '16px', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px', cursor: 'pointer', boxShadow: '0 2px 4px rgba(0,0,0,0.05)' }}>
+        {/* زرار الشات المباشر */}
+        <button onClick={() => setActiveTab('live')} style={{ position: 'relative', flex: 1, padding: '15px', borderRadius: '12px', border: unreadLiveCount > 0 ? '2px solid #ca8a04' : 'none', backgroundColor: unreadLiveCount > 0 ? '#fef08a' : (activeTab === 'live' ? '#3b82f6' : 'white'), color: unreadLiveCount > 0 ? '#854d0e' : (activeTab === 'live' ? 'white' : '#64748b'), fontWeight: 'bold', fontSize: '16px', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px', cursor: 'pointer', boxShadow: '0 2px 4px rgba(0,0,0,0.05)', transition: '0.2s' }}>
           <MessageSquare size={20} /> المحادثات المباشرة (Live)
+          {unreadLiveCount > 0 && <span style={{ position: 'absolute', top: '-8px', right: '-8px', backgroundColor: '#ef4444', color: 'white', fontSize: '12px', fontWeight: 'bold', width: '24px', height: '24px', display: 'flex', justifyContent: 'center', alignItems: 'center', borderRadius: '50%', border: '2px solid white', boxShadow: '0 2px 4px rgba(0,0,0,0.2)' }}>{unreadLiveCount}</span>}
         </button>
-        <button onClick={() => setActiveTab('passenger_tickets')} style={{ flex: 1, padding: '15px', borderRadius: '12px', border: 'none', backgroundColor: activeTab === 'passenger_tickets' ? '#2563eb' : 'white', color: activeTab === 'passenger_tickets' ? 'white' : '#64748b', fontWeight: 'bold', fontSize: '16px', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px', cursor: 'pointer', boxShadow: '0 2px 4px rgba(0,0,0,0.05)' }}>
+
+        {/* زرار رسائل الركاب */}
+        <button onClick={() => setActiveTab('passenger_tickets')} style={{ position: 'relative', flex: 1, padding: '15px', borderRadius: '12px', border: unreadPassengerTickets > 0 ? '2px solid #ca8a04' : 'none', backgroundColor: unreadPassengerTickets > 0 ? '#fef08a' : (activeTab === 'passenger_tickets' ? '#2563eb' : 'white'), color: unreadPassengerTickets > 0 ? '#854d0e' : (activeTab === 'passenger_tickets' ? 'white' : '#64748b'), fontWeight: 'bold', fontSize: '16px', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px', cursor: 'pointer', boxShadow: '0 2px 4px rgba(0,0,0,0.05)', transition: '0.2s' }}>
           <Ticket size={20} /> رسائل الركاب
+          {unreadPassengerTickets > 0 && <span style={{ position: 'absolute', top: '-8px', right: '-8px', backgroundColor: '#ef4444', color: 'white', fontSize: '12px', fontWeight: 'bold', width: '24px', height: '24px', display: 'flex', justifyContent: 'center', alignItems: 'center', borderRadius: '50%', border: '2px solid white', boxShadow: '0 2px 4px rgba(0,0,0,0.2)' }}>{unreadPassengerTickets}</span>}
         </button>
-        <button onClick={() => setActiveTab('captain_tickets')} style={{ flex: 1, padding: '15px', borderRadius: '12px', border: 'none', backgroundColor: activeTab === 'captain_tickets' ? '#10b981' : 'white', color: activeTab === 'captain_tickets' ? 'white' : '#64748b', fontWeight: 'bold', fontSize: '16px', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px', cursor: 'pointer', boxShadow: '0 2px 4px rgba(0,0,0,0.05)' }}>
+
+        {/* زرار رسائل الكباتن */}
+        <button onClick={() => setActiveTab('captain_tickets')} style={{ position: 'relative', flex: 1, padding: '15px', borderRadius: '12px', border: unreadCaptainTickets > 0 ? '2px solid #ca8a04' : 'none', backgroundColor: unreadCaptainTickets > 0 ? '#fef08a' : (activeTab === 'captain_tickets' ? '#10b981' : 'white'), color: unreadCaptainTickets > 0 ? '#854d0e' : (activeTab === 'captain_tickets' ? 'white' : '#64748b'), fontWeight: 'bold', fontSize: '16px', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px', cursor: 'pointer', boxShadow: '0 2px 4px rgba(0,0,0,0.05)', transition: '0.2s' }}>
           <Ticket size={20} /> رسائل الكباتن
+          {unreadCaptainTickets > 0 && <span style={{ position: 'absolute', top: '-8px', right: '-8px', backgroundColor: '#ef4444', color: 'white', fontSize: '12px', fontWeight: 'bold', width: '24px', height: '24px', display: 'flex', justifyContent: 'center', alignItems: 'center', borderRadius: '50%', border: '2px solid white', boxShadow: '0 2px 4px rgba(0,0,0,0.2)' }}>{unreadCaptainTickets}</span>}
         </button>
       </div>
 
@@ -182,10 +189,11 @@ export default function SupportPage() {
                 const subText = activeTab === 'live' ? item.lastMessage : item.message || item.text || item.content;
 
                 return (
-                  <div key={item.id} onClick={() => setSelectedItem(item)} style={{ padding: '15px', borderBottom: '1px solid #f1f5f9', cursor: 'pointer', backgroundColor: isSelected ? '#eff6ff' : (isUnread ? '#f0fdf4' : 'white'), transition: '0.2s', display: 'flex', gap: '12px', alignItems: 'center' }}>
+                  <div key={item.id} onClick={() => handleSelectItem(item)} style={{ padding: '15px', borderBottom: '1px solid #f1f5f9', cursor: 'pointer', backgroundColor: isSelected ? '#eff6ff' : (isUnread ? '#fef9c3' : 'white'), borderRight: isUnread ? '4px solid #eab308' : 'none', transition: '0.2s', display: 'flex', gap: '12px', alignItems: 'center' }}>
                     <div style={{ width: '45px', height: '45px', borderRadius: '50%', backgroundColor: (item.userType || item.senderType) === 'captain' ? '#dcfce7' : '#dbeafe', display: 'flex', justifyContent: 'center', alignItems: 'center', position: 'relative' }}>
                       <User size={24} color={(item.userType || item.senderType) === 'captain' ? '#16a34a' : '#2563eb'} />
-                      {isUnread && <div style={{ position: 'absolute', top: 0, right: 0, width: '12px', height: '12px', backgroundColor: '#ef4444', borderRadius: '50%', border: '2px solid white' }}></div>}
+                      {/* النقطة الحمراء للرسايل الجديدة */}
+                      {isUnread && <div style={{ position: 'absolute', top: '-2px', right: '-2px', width: '14px', height: '14px', backgroundColor: '#ef4444', borderRadius: '50%', border: '2px solid white', zIndex: 10 }}></div>}
                     </div>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
@@ -275,7 +283,7 @@ export default function SupportPage() {
                 <div style={{ flex: 1, padding: '30px', overflowY: 'auto', backgroundColor: '#f8fafc' }}>
                   <div style={{ backgroundColor: 'white', padding: '25px', borderRadius: '16px', border: '1px solid #e2e8f0', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)', marginBottom: '20px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#64748b', marginBottom: '15px', fontSize: '14px' }}>
-                      <Clock size={16} /> <span>تاريخ الرسالة: {formatDate(selectedItem.timestamp)} - {formatTime(selectedItem.timestamp)}</span>
+                      <Clock size={16} /> <span>تاريخ الرسالة: {formatDate(selectedItem.timestamp)} {formatTime(selectedItem.timestamp)}</span>
                     </div>
                     <h4 style={{ margin: '0 0 10px 0', color: '#1e293b', fontSize: '18px' }}>نص الرسالة:</h4>
                     <p style={{ margin: 0, color: '#334155', fontSize: '16px', lineHeight: '1.8', backgroundColor: '#f1f5f9', padding: '15px', borderRadius: '10px' }}>

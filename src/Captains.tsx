@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { collection, query, onSnapshot, doc, updateDoc } from 'firebase/firestore';
 import { db } from './firebase';
-import { Search, ShieldBan, CheckCircle, Car, Star, Wallet, X, IdCard, Image as ImageIcon, CarFront, Filter, ArrowUpDown } from 'lucide-react';
+import { Search, ShieldBan, Car, Star, Wallet, X, IdCard, Image as ImageIcon, CarFront, Filter, ArrowUpDown } from 'lucide-react';
 
 export default function Captains() {
   const [captains, setCaptains] = useState<any[]>([]);
@@ -229,8 +229,10 @@ export default function Captains() {
                   <td style={{ padding: '12px 15px' }}>
                     {cap.status === 'banned' ? (
                       <span style={{ color: '#ef4444', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '4px' }}><ShieldBan size={16}/> محظور</span>
+                    ) : cap.isOnline ? (
+                      <span style={{ color: '#10b981', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '4px' }}>🟢 أونلاين</span>
                     ) : (
-                      <span style={{ color: '#10b981', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '4px' }}><CheckCircle size={16}/> نشط</span>
+                      <span style={{ color: '#ef4444', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '4px' }}>🔴 أوفلاين</span>
                     )}
                   </td>
                   <td style={{ padding: '12px 15px' }}>
