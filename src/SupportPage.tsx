@@ -1,254 +1,323 @@
 import { useState, useEffect, useRef } from 'react';
 import { collection, query, orderBy, onSnapshot, doc, updateDoc, addDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from './firebase'; 
-import { MessageSquare, User, Send, XCircle } from 'lucide-react';
+import { Search, Send, User, Clock, MessageSquare, Phone, Ticket, Ban, CheckCircle } from 'lucide-react';
 
 export default function SupportPage() {
-  const [activeMainTab, setActiveMainTab] = useState<'passenger' | 'captain'>('passenger');
-  const [activeSubTab, setActiveSubTab] = useState<'tickets' | 'live'>('tickets');
+  const [activeTab, setActiveTab] = useState<'live' | 'passenger_tickets' | 'captain_tickets'>('live');
   
+  const [liveChats, setLiveChats] = useState<any[]>([]);
   const [tickets, setTickets] = useState<any[]>([]);
-  const [chats, setChats] = useState<any[]>([]);
-  const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
-  const [chatMessages, setChatMessages] = useState<any[]>([]);
-  const [liveMessage, setLiveMessage] = useState('');
+  const [selectedItem, setSelectedItem] = useState<any>(null);
+  const [messages, setMessages] = useState<any[]>([]);
+  const [replyText, setReplyText] = useState('');
+  const [loading, setLoading] = useState(true);
   
-  const [replyText, setReplyText] = useState<{ [key: string]: string }>({});
-  const [submittingReply, setSubmittingReply] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // جلب התذاكر
   useEffect(() => {
-    const q = query(collection(db, 'support_tickets'), orderBy('timestamp', 'desc'));
-    const unsub = onSnapshot(q, (snapshot) => {
-      setTickets(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
+    const qChats = query(collection(db, 'support_chats'), orderBy('lastUpdatedAt', 'desc'));
+    const unsubChats = onSnapshot(qChats, (snapshot) => {
+      const chatsData = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+      setLiveChats(chatsData);
+      
+      if (activeTab === 'live') {
+        chatsData.forEach((chat: any) => {
+          if (chat.unreadAdmin) updateDoc(doc(db, 'support_chats', chat.id), { unreadAdmin: false }).catch(() => {});
+        });
+      }
+
+      if (activeTab === 'live' && selectedItem) {
+        const updated = chatsData.find(c => c.id === selectedItem.id);
+        if (updated) setSelectedItem(updated);
+      }
     });
-    return () => unsub();
-  }, []);
 
-  // جلب المحادثات
-  useEffect(() => {
-    const q = query(collection(db, 'support_chats'), orderBy('lastMessageTime', 'desc'));
-    const unsub = onSnapshot(q, (snapshot) => {
-      setChats(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
+    const qTickets = query(collection(db, 'support_tickets'), orderBy('timestamp', 'desc'));
+    const unsubTickets = onSnapshot(qTickets, (snapshot) => {
+      const ticketsData = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+      setTickets(ticketsData);
+      setLoading(false);
+
+      if (activeTab === 'passenger_tickets') {
+        ticketsData.filter((t: any) => (t.userType === 'passenger' || t.senderType === 'passenger') && !t.isReadAdmin).forEach((t: any) => {
+          updateDoc(doc(db, 'support_tickets', t.id), { isReadAdmin: true }).catch(() => {});
+        });
+      } else if (activeTab === 'captain_tickets') {
+        ticketsData.filter((t: any) => (t.userType === 'captain' || t.senderType === 'captain') && !t.isReadAdmin).forEach((t: any) => {
+          updateDoc(doc(db, 'support_tickets', t.id), { isReadAdmin: true }).catch(() => {});
+        });
+      }
+
+      if (activeTab !== 'live' && selectedItem) {
+        const updated = ticketsData.find(t => t.id === selectedItem.id);
+        if (updated) setSelectedItem(updated);
+      }
     });
-    return () => unsub();
-  }, []);
 
-  // قراءة التذاكر
-  useEffect(() => {
-    if (activeSubTab === 'tickets') {
-      const unreadVisible = tickets.filter(t => t.senderType === activeMainTab && t.isReadAdmin === false);
-      unreadVisible.forEach(t => updateDoc(doc(db, 'support_tickets', t.id), { isReadAdmin: true }).catch(e => console.log(e)));
-    }
-  }, [activeMainTab, activeSubTab, tickets]);
+    return () => { unsubChats(); unsubTickets(); };
+  }, [activeTab]);
 
-  // قراءة الشات
   useEffect(() => {
-    if (selectedChatId && activeSubTab === 'live') {
-      updateDoc(doc(db, 'support_chats', selectedChatId), { unreadAdmin: false }).catch(e=>console.log(e));
-      const q = query(collection(db, 'support_chats', selectedChatId, 'messages'), orderBy('timestamp', 'asc'));
-      const unsub = onSnapshot(q, (snap) => {
-        setChatMessages(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    setSelectedItem(null);
+    setReplyText('');
+  }, [activeTab]);
+
+  useEffect(() => {
+    if (activeTab === 'live' && selectedItem?.id) {
+      const qMsgs = query(collection(db, 'support_chats', selectedItem.id, 'messages'), orderBy('timestamp', 'asc'));
+      const unsubMsgs = onSnapshot(qMsgs, (snapshot) => {
+        setMessages(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
         setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
       });
-      return () => unsub();
+      return () => unsubMsgs();
     }
-  }, [selectedChatId, activeSubTab]);
+  }, [activeTab, selectedItem?.id]);
 
-  const sendTicketReply = async (ticketId: string, senderId: string, senderType: string) => {
-    const reply = replyText[ticketId];
-    if (!reply || reply.trim() === '') return;
-    setSubmittingReply(ticketId);
-    try {
-      await updateDoc(doc(db, 'support_tickets', ticketId), { reply: reply.trim(), status: 'replied', isReadAdmin: true });
-      await addDoc(collection(db, 'notifications'), { userId: senderId, userType: senderType, title: 'رد من الدعم الفني 🎧', message: reply.trim(), read: false, timestamp: serverTimestamp() });
-      setReplyText(prev => ({ ...prev, [ticketId]: '' }));
-    } catch (error) { alert("خطأ في الإرسال"); }
-    finally { setSubmittingReply(null); }
-  };
-
-  const sendLiveMessage = async (e: React.FormEvent) => {
+  const handleSendLiveMessage = async (e: any) => {
     e.preventDefault();
-    if (!liveMessage.trim() || !selectedChatId) return;
-    const chatDoc = chats.find(c => c.id === selectedChatId);
-    if (!chatDoc) return;
-    const msgText = liveMessage.trim();
-    setLiveMessage('');
+    if (!replyText.trim() || !selectedItem || selectedItem.isClosed) return;
+
+    const msg = replyText.trim();
+    setReplyText('');
     try {
-      await addDoc(collection(db, 'support_chats', selectedChatId, 'messages'), { text: msgText, sender: 'admin', timestamp: serverTimestamp() });
-      await updateDoc(doc(db, 'support_chats', selectedChatId), { lastMessage: msgText, lastMessageTime: serverTimestamp(), unreadUser: true });
-    } catch (error) { console.log(error); }
+      await addDoc(collection(db, 'support_chats', selectedItem.id, 'messages'), { text: msg, sender: 'admin', timestamp: serverTimestamp() });
+      await updateDoc(doc(db, 'support_chats', selectedItem.id), { lastMessage: msg, lastUpdatedAt: serverTimestamp(), unreadUser: true });
+    } catch (error) { alert("حدث خطأ أثناء الإرسال."); }
   };
 
-  const closeLiveChat = async () => {
-    if (!selectedChatId) return;
-    if(window.confirm('هل أنت متأكد من إنهاء هذه المحادثة؟')) {
-      await updateDoc(doc(db, 'support_chats', selectedChatId), { status: 'closed' });
-      setSelectedChatId(null);
-    }
+  const handleEndLiveChat = async () => {
+    if (!selectedItem || selectedItem.isClosed) return;
+    if (!window.confirm('هل أنت متأكد من إنهاء هذه المحادثة؟ لن يتمكن العميل من إرسال رسائل أخرى هنا.')) return;
+
+    try {
+      await updateDoc(doc(db, 'support_chats', selectedItem.id), {
+        isClosed: true,
+        status: 'closed',
+        lastMessage: 'تم إنهاء المحادثة بواسطة الإدارة',
+        lastUpdatedAt: serverTimestamp()
+      });
+      
+      await addDoc(collection(db, 'support_chats', selectedItem.id, 'messages'), {
+        text: '🛑 تم إنهاء هذه المحادثة بواسطة خدمة العملاء.',
+        sender: 'system',
+        timestamp: serverTimestamp()
+      });
+    } catch (error) { alert("حدث خطأ أثناء الإغلاق."); }
   };
 
-  const deleteChat = async (chatId: string) => {
-    if(window.confirm('هل أنت متأكد من حذف هذه المحادثة نهائياً؟')) {
-      try {
-        await updateDoc(doc(db, 'support_chats', chatId), { status: 'deleted' });
-        if (selectedChatId === chatId) setSelectedChatId(null);
-      } catch (error) { console.log(error); }
-    }
+  const handleReplyToTicket = async (e: any) => {
+    e.preventDefault();
+    if (!replyText.trim() || !selectedItem) return;
+
+    const reply = replyText.trim();
+    setReplyText('');
+    try {
+      await updateDoc(doc(db, 'support_tickets', selectedItem.id), {
+        reply: reply,
+        status: 'replied',
+        isReadAdmin: true
+      });
+
+      await addDoc(collection(db, 'notifications'), {
+        userId: selectedItem.passengerId || selectedItem.captainId || selectedItem.userId || selectedItem.senderId || selectedItem.id,
+        userType: selectedItem.userType || selectedItem.senderType,
+        title: 'رد على رسالتك للدعم الفني 📞',
+        message: reply,
+        read: false,
+        timestamp: serverTimestamp()
+      });
+    } catch (error) { alert("حدث خطأ أثناء إرسال الرد."); }
   };
 
-  const deleteAllClosedChats = async () => {
-    const closedChats = chats.filter(c => c.userType === activeMainTab && c.status === 'closed');
-    if (closedChats.length === 0) return alert('لا توجد محادثات منتهية لمسحها.');
-    if(window.confirm(`هل أنت متأكد من حذف ${closedChats.length} محادثة منتهية نهائياً؟`)) {
-      try {
-        await Promise.all(closedChats.map(c => updateDoc(doc(db, 'support_chats', c.id), { status: 'deleted' })));
-      } catch (error) { console.log(error); }
-    }
+  const formatTime = (timestamp: any) => {
+    if (!timestamp) return '';
+    const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+    return date.toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' });
   };
 
-    const filteredTickets = tickets.filter(t => t.senderType === activeMainTab);
-  const filteredChats = chats.filter(c => c.userType === activeMainTab && c.status !== 'deleted');
-  
-  const unreadPass = tickets.filter(t => t.senderType === 'passenger' && !t.isReadAdmin).length;
-  const unreadCapt = tickets.filter(t => t.senderType === 'captain' && !t.isReadAdmin).length;
+  const formatDate = (timestamp: any) => {
+    if (!timestamp) return '';
+    const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+    return date.toLocaleDateString('ar-EG');
+  };
+
+  const currentList = activeTab === 'live' 
+    ? liveChats 
+    : tickets.filter((t: any) => (t.userType || t.senderType) === (activeTab === 'passenger_tickets' ? 'passenger' : 'captain'));
 
   return (
-    <div style={{ padding: '20px', maxWidth: '1200px', margin: '0 auto' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '30px' }}>
-        <MessageSquare size={32} color="#3b82f6" />
-        <h1 style={{ margin: 0, color: '#1e293b' }}>الدعم الفني</h1>
-      </div>
-
+    <div style={{ padding: '20px', maxWidth: '1400px', margin: '0 auto', height: 'calc(100vh - 100px)', display: 'flex', flexDirection: 'column' }}>
+      
       <div style={{ display: 'flex', gap: '15px', marginBottom: '20px' }}>
-        <button onClick={() => { setActiveMainTab('passenger'); setSelectedChatId(null); }} style={{ flex: 1, padding: '15px', borderRadius: '12px', border: 'none', backgroundColor: activeMainTab === 'passenger' ? '#2563eb' : '#e2e8f0', color: activeMainTab === 'passenger' ? 'white' : '#475569', fontSize: '18px', fontWeight: 'bold', cursor: 'pointer', position: 'relative' }}>
-          <User size={22} style={{verticalAlign:'middle', marginLeft:'8px'}}/> الركاب
-          {unreadPass > 0 && <span style={{ position: 'absolute', top: '-8px', right: '-8px', backgroundColor: '#ef4444', color: 'white', fontSize: '12px', width: '24px', height: '24px', borderRadius: '50%', display:'flex', alignItems:'center', justifyContent:'center' }}>{unreadPass}</span>}
+        <button onClick={() => setActiveTab('live')} style={{ flex: 1, padding: '15px', borderRadius: '12px', border: 'none', backgroundColor: activeTab === 'live' ? '#3b82f6' : 'white', color: activeTab === 'live' ? 'white' : '#64748b', fontWeight: 'bold', fontSize: '16px', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px', cursor: 'pointer', boxShadow: '0 2px 4px rgba(0,0,0,0.05)' }}>
+          <MessageSquare size={20} /> المحادثات المباشرة (Live)
         </button>
-        <button onClick={() => { setActiveMainTab('captain'); setSelectedChatId(null); }} style={{ flex: 1, padding: '15px', borderRadius: '12px', border: 'none', backgroundColor: activeMainTab === 'captain' ? '#10b981' : '#e2e8f0', color: activeMainTab === 'captain' ? 'white' : '#475569', fontSize: '18px', fontWeight: 'bold', cursor: 'pointer', position: 'relative' }}>
-          <User size={22} style={{verticalAlign:'middle', marginLeft:'8px'}}/> الكباتن
-          {unreadCapt > 0 && <span style={{ position: 'absolute', top: '-8px', right: '-8px', backgroundColor: '#ef4444', color: 'white', fontSize: '12px', width: '24px', height: '24px', borderRadius: '50%', display:'flex', alignItems:'center', justifyContent:'center' }}>{unreadCapt}</span>}
+        <button onClick={() => setActiveTab('passenger_tickets')} style={{ flex: 1, padding: '15px', borderRadius: '12px', border: 'none', backgroundColor: activeTab === 'passenger_tickets' ? '#2563eb' : 'white', color: activeTab === 'passenger_tickets' ? 'white' : '#64748b', fontWeight: 'bold', fontSize: '16px', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px', cursor: 'pointer', boxShadow: '0 2px 4px rgba(0,0,0,0.05)' }}>
+          <Ticket size={20} /> رسائل الركاب
         </button>
-      </div>
-
-      <div style={{ display: 'flex', gap: '20px', borderBottom: '2px solid #e2e8f0', paddingBottom: '10px', marginBottom: '30px' }}>
-        <button onClick={() => { setActiveSubTab('tickets'); setSelectedChatId(null); }} style={{ background: 'none', border: 'none', fontSize: '16px', fontWeight: 'bold', color: activeSubTab === 'tickets' ? '#2563eb' : '#64748b', borderBottom: activeSubTab === 'tickets' ? '3px solid #2563eb' : 'none', paddingBottom: '5px', cursor: 'pointer' }}>طلبات الدعم والرسائل</button>
-        <button onClick={() => setActiveSubTab('live')} style={{ background: 'none', border: 'none', fontSize: '16px', fontWeight: 'bold', color: activeSubTab === 'live' ? '#2563eb' : '#64748b', borderBottom: activeSubTab === 'live' ? '3px solid #2563eb' : 'none', paddingBottom: '5px', cursor: 'pointer', position: 'relative' }}>
-          المحادثات المباشرة (Live)
-          {chats.filter(c => c.userType === activeMainTab && c.unreadAdmin).length > 0 && <span style={{ position: 'absolute', top: '-5px', left: '-15px', width:'10px', height:'10px', backgroundColor: '#ef4444', borderRadius:'50%' }}></span>}
+        <button onClick={() => setActiveTab('captain_tickets')} style={{ flex: 1, padding: '15px', borderRadius: '12px', border: 'none', backgroundColor: activeTab === 'captain_tickets' ? '#10b981' : 'white', color: activeTab === 'captain_tickets' ? 'white' : '#64748b', fontWeight: 'bold', fontSize: '16px', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px', cursor: 'pointer', boxShadow: '0 2px 4px rgba(0,0,0,0.05)' }}>
+          <Ticket size={20} /> رسائل الكباتن
         </button>
       </div>
 
-      {activeSubTab === 'tickets' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-          {filteredTickets.map(ticket => (
-            <div key={ticket.id} style={{ backgroundColor: 'white', padding: '25px', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '15px' }}>
-                  <h3 style={{ margin: 0, color: '#1e293b' }}>المرسل: {ticket.senderName}</h3>
-                  <span style={{ padding: '6px 12px', borderRadius: '20px', fontSize: '12px', fontWeight: 'bold', backgroundColor: ticket.status === 'resolved' ? '#dcfce7' : ticket.reply ? '#e0e7ff' : '#fef3c7', color: ticket.status === 'resolved' ? '#166534' : ticket.reply ? '#3730a3' : '#b45309' }}>{ticket.status === 'resolved' ? 'مغلقة' : ticket.reply ? 'تم الرد' : 'بانتظار الرد'}</span>
-              </div>
-              <div style={{ backgroundColor: '#f1f5f9', padding: '15px', borderRadius: '10px', color: '#334155', marginBottom: '20px' }}>{ticket.text}</div>
-              {!ticket.reply && (
-                <div style={{ display: 'flex', gap: '10px' }}>
-                  <input type="text" placeholder="اكتب ردك هنا..." value={replyText[ticket.id] || ''} onChange={(e) => setReplyText({ ...replyText, [ticket.id]: e.target.value })} style={{ flex: 1, padding: '12px', borderRadius: '8px', border: '1px solid #cbd5e1' }} />
-                  <button disabled={submittingReply === ticket.id} onClick={() => sendTicketReply(ticket.id, ticket.senderId, ticket.senderType)} style={{ backgroundColor: '#2563eb', color: 'white', border: 'none', padding: '0 20px', borderRadius: '8px', cursor: 'pointer' }}>
-                    {submittingReply === ticket.id ? 'جاري الإرسال...' : 'إرسال الرد'}
-                  </button>
-                </div>
-              )}
-            </div>
-          ))}
-          {filteredTickets.length === 0 && <div style={{ textAlign: 'center', padding: '50px', color: '#64748b' }}>لا توجد رسائل دعم</div>}
-        </div>
-      )}
-
-      {activeSubTab === 'live' && (
-        <div style={{ display: 'flex', gap: '20px', height: '600px' }}>
-          <div style={{ width: '350px', backgroundColor: 'white', borderRadius: '12px', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column' }}>
-            <div style={{ padding: '15px', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#f8fafc', borderRadius: '12px 12px 0 0' }}>
-              <strong style={{ color: '#1e293b' }}>المحادثات ({filteredChats.length})</strong>
-              {filteredChats.some(c => c.status === 'closed') && (
-                <button onClick={deleteAllClosedChats} style={{ background: 'none', border: 'none', color: '#ef4444', fontSize: '13px', fontWeight: 'bold', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px' }}>
-                  <XCircle size={14} /> مسح المنتهية
-                </button>
-              )}
-            </div>
-
-            <div style={{ flex: 1, overflowY: 'auto' }}>
-              {filteredChats.map(chat => (
-                <div key={chat.id} onClick={() => setSelectedChatId(chat.id)} style={{ padding: '15px', borderBottom: '1px solid #f1f5f9', cursor: 'pointer', backgroundColor: selectedChatId === chat.id ? '#eff6ff' : 'white', borderLeft: chat.unreadAdmin ? '4px solid #ef4444' : 'none', position: 'relative' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '5px' }}>
-                    <h4 style={{ margin: 0, color: '#1e293b', width: '70%', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      {chat.userName && chat.userName.trim() !== '' && chat.userName !== 'كابتن' && chat.userName !== 'undefined' 
-                        ? chat.userName 
-                        : (chat.userType === 'captain' ? `كابتن (${chat.userId ? chat.userId.slice(0, 6) : ''})` : `راكب (${chat.userId ? chat.userId.slice(0, 6) : ''})`)
-                      }
-                    </h4>
-                    <span style={{ fontSize: '11px', color: chat.status === 'active' ? '#10b981' : '#94a3b8' }}>{chat.status === 'active' ? 'نشط' : 'مغلق'}</span>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <p style={{ margin: 0, fontSize: '13px', color: '#64748b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', width: '80%' }}>{chat.lastMessage}</p>
-                    {(chat.status === 'closed' || chat.status !== 'active') && (
-                      <button onClick={(e) => { e.stopPropagation(); deleteChat(chat.id); }} style={{ background: 'none', border: 'none', padding: '0', cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
-                        <XCircle size={18} color="#ef4444" />
-                      </button>
-                    )}
-                  </div>
-                </div>
-              ))}
-              {filteredChats.length === 0 && <div style={{ padding: '20px', textAlign: 'center', color: '#94a3b8' }}>لا توجد محادثات</div>}
+      <div style={{ display: 'flex', flex: 1, gap: '20px', overflow: 'hidden' }}>
+        
+        <div style={{ width: '380px', backgroundColor: 'white', borderRadius: '16px', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)' }}>
+          <div style={{ padding: '15px', backgroundColor: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
+            <div style={{ position: 'relative' }}>
+              <Search size={18} style={{ position: 'absolute', right: '12px', top: '10px', color: '#94a3b8' }} />
+              <input type="text" placeholder="ابحث بالاسم أو الهاتف..." style={{ width: '100%', padding: '10px 40px 10px 15px', borderRadius: '8px', border: '1px solid #cbd5e1', outline: 'none' }} />
             </div>
           </div>
 
-          <div style={{ flex: 1, backgroundColor: 'white', borderRadius: '12px', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column' }}>
-            {selectedChatId ? (
-              <>
-                <div style={{ padding: '15px', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#f8fafc', borderRadius: '12px 12px 0 0' }}>
-                  <h3 style={{ margin: 0, color: '#1e293b' }}>
-                    محادثة مع: {
-                      (() => {
-                        const activeChat = chats.find(c => c.id === selectedChatId);
-                        if (!activeChat) return '';
-                        return activeChat.userName && activeChat.userName.trim() !== '' && activeChat.userName !== 'كابتن' && activeChat.userName !== 'undefined'
-                          ? activeChat.userName
-                          : (activeChat.userType === 'captain' ? `كابتن (${activeChat.userId ? activeChat.userId.slice(0, 6) : ''})` : `راكب (${activeChat.userId ? activeChat.userId.slice(0, 6) : ''})`);
-                      })()
-                    }
-                  </h3>
-                  {chats.find(c => c.id === selectedChatId)?.status === 'active' && (
-                    <button onClick={closeLiveChat} style={{ backgroundColor: '#fee2e2', color: '#ef4444', border: 'none', padding: '8px 15px', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px', fontWeight: 'bold' }}>
-                      <XCircle size={18} /> إنهاء المحادثة
-                    </button>
-                  )}
-                </div>
+          <div style={{ flex: 1, overflowY: 'auto' }}>
+            {loading ? <div style={{ padding: '20px', textAlign: 'center', color: '#64748b' }}>جاري التحميل...</div> : currentList.length === 0 ? <div style={{ padding: '20px', textAlign: 'center', color: '#64748b' }}>لا توجد بيانات.</div> : (
+              currentList.map(item => {
+                const isSelected = selectedItem?.id === item.id;
+                const isUnread = activeTab === 'live' ? item.unreadAdmin : !item.isReadAdmin;
                 
-                <div style={{ flex: 1, overflowY: 'auto', padding: '20px', backgroundColor: '#f1f5f9' }}>
-                  {chatMessages.map(msg => (
-                    <div key={msg.id} style={{ display: 'flex', justifyContent: msg.sender === 'admin' ? 'flex-start' : 'flex-end', marginBottom: '15px' }}>
-                      <div style={{ maxWidth: '70%', padding: '12px 15px', borderRadius: '12px', backgroundColor: msg.sender === 'admin' ? '#2563eb' : 'white', color: msg.sender === 'admin' ? 'white' : '#1e293b', border: msg.sender === 'user' ? '1px solid #e2e8f0' : 'none' }}>
-                        {msg.text}
+                const name = item.senderName || item.name || item.userName || item.passengerName || item.captainName || 'مستخدم غير مسجل';
+                const time = formatTime(item.lastUpdatedAt || item.timestamp);
+                const subText = activeTab === 'live' ? item.lastMessage : item.message || item.text || item.content;
+
+                return (
+                  <div key={item.id} onClick={() => setSelectedItem(item)} style={{ padding: '15px', borderBottom: '1px solid #f1f5f9', cursor: 'pointer', backgroundColor: isSelected ? '#eff6ff' : (isUnread ? '#f0fdf4' : 'white'), transition: '0.2s', display: 'flex', gap: '12px', alignItems: 'center' }}>
+                    <div style={{ width: '45px', height: '45px', borderRadius: '50%', backgroundColor: (item.userType || item.senderType) === 'captain' ? '#dcfce7' : '#dbeafe', display: 'flex', justifyContent: 'center', alignItems: 'center', position: 'relative' }}>
+                      <User size={24} color={(item.userType || item.senderType) === 'captain' ? '#16a34a' : '#2563eb'} />
+                      {isUnread && <div style={{ position: 'absolute', top: 0, right: 0, width: '12px', height: '12px', backgroundColor: '#ef4444', borderRadius: '50%', border: '2px solid white' }}></div>}
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                        <span style={{ fontWeight: 'bold', color: '#1e293b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{name}</span>
+                        <span style={{ fontSize: '11px', color: '#94a3b8' }}>{time}</span>
+                      </div>
+                      <div style={{ fontSize: '13px', color: isUnread ? '#0f172a' : '#64748b', fontWeight: isUnread ? 'bold' : 'normal', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {subText}
                       </div>
                     </div>
-                  ))}
-                  <div ref={messagesEndRef} />
-                </div>
-
-                {chats.find(c => c.id === selectedChatId)?.status === 'active' ? (
-                  <form onSubmit={sendLiveMessage} style={{ padding: '15px', borderTop: '1px solid #e2e8f0', display: 'flex', gap: '10px' }}>
-                    <input type="text" value={liveMessage} onChange={e => setLiveMessage(e.target.value)} placeholder="اكتب رسالتك..." style={{ flex: 1, padding: '12px', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '15px', outline: 'none' }} />
-                    <button type="submit" style={{ backgroundColor: '#2563eb', color: 'white', border: 'none', padding: '0 20px', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}><Send size={18} /> إرسال</button>
-                  </form>
-                ) : (
-                  <div style={{ padding: '15px', textAlign: 'center', color: '#94a3b8', backgroundColor: '#f8fafc', borderRadius: '0 0 12px 12px' }}>تم إنهاء هذه المحادثة</div>
-                )}
-              </>
-            ) : (
-              <div style={{ flex: 1, display: 'flex', justifyContent: 'center', alignItems: 'center', color: '#94a3b8' }}>اختر محادثة من القائمة لعرضها</div>
+                  </div>
+                );
+              })
             )}
           </div>
         </div>
-      )}
+
+        <div style={{ flex: 1, backgroundColor: 'white', borderRadius: '16px', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)' }}>
+          {selectedItem ? (
+            <>
+              <div style={{ padding: '15px 25px', backgroundColor: '#f8fafc', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+                  <div style={{ width: '45px', height: '45px', borderRadius: '50%', backgroundColor: (selectedItem.userType || selectedItem.senderType) === 'captain' ? '#dcfce7' : '#dbeafe', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+                    <User size={24} color={(selectedItem.userType || selectedItem.senderType) === 'captain' ? '#16a34a' : '#2563eb'} />
+                  </div>
+                  <div>
+                    <h3 style={{ margin: '0 0 5px 0', color: '#1e293b' }}>
+                      {selectedItem.senderName || selectedItem.name || selectedItem.userName || selectedItem.passengerName || selectedItem.captainName} 
+                      <span style={{ fontSize: '12px', padding: '2px 8px', backgroundColor: (selectedItem.userType || selectedItem.senderType) === 'captain' ? '#10b981' : '#3b82f6', color: 'white', borderRadius: '12px', marginRight: '8px' }}>
+                        {(selectedItem.userType || selectedItem.senderType) === 'captain' ? 'كابتن' : 'راكب'}
+                      </span>
+                      {selectedItem.isClosed && <span style={{ fontSize: '12px', padding: '2px 8px', backgroundColor: '#ef4444', color: 'white', borderRadius: '12px', marginRight: '5px' }}>مغلقة</span>}
+                    </h3>
+                    <span style={{ fontSize: '13px', color: '#64748b', display: 'flex', alignItems: 'center', gap: '5px' }}><Phone size={12}/> {selectedItem.senderPhone || selectedItem.phone || selectedItem.userPhone || selectedItem.passengerPhone || selectedItem.captainPhone || 'رقم غير مسجل'}</span>
+                  </div>
+                </div>
+
+                {activeTab === 'live' && !selectedItem.isClosed && (
+                  <button onClick={handleEndLiveChat} style={{ backgroundColor: '#fee2e2', color: '#ef4444', border: '1px solid #fca5a5', padding: '8px 15px', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <Ban size={16} /> إنهاء المحادثة
+                  </button>
+                )}
+              </div>
+
+              {activeTab === 'live' ? (
+                <>
+                  <div style={{ flex: 1, backgroundColor: '#f1f5f9', padding: '20px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                    {messages.map(msg => {
+                      const isAdmin = msg.sender === 'admin';
+                      const isSystem = msg.sender === 'system';
+                      
+                      if (isSystem) {
+                        return <div key={msg.id} style={{ textAlign: 'center', margin: '15px 0' }}><span style={{ backgroundColor: '#fee2e2', color: '#ef4444', padding: '5px 15px', borderRadius: '15px', fontSize: '12px', fontWeight: 'bold' }}>{msg.text}</span></div>;
+                      }
+
+                      return (
+                        <div key={msg.id} style={{ display: 'flex', justifyContent: isAdmin ? 'flex-start' : 'flex-end' }}>
+                          <div style={{ maxWidth: '70%', padding: '10px 15px', borderRadius: '12px', backgroundColor: isAdmin ? '#e0f2fe' : '#ffffff', border: `1px solid ${isAdmin ? '#bae6fd' : '#e2e8f0'}`, borderTopRightRadius: !isAdmin ? '2px' : '12px', borderTopLeftRadius: isAdmin ? '2px' : '12px', boxShadow: '0 1px 2px rgba(0,0,0,0.05)' }}>
+                            <p style={{ margin: '0 0 5px 0', fontSize: '15px', color: '#1e293b', lineHeight: '1.5' }}>{msg.text}</p>
+                            <span style={{ fontSize: '10px', color: '#94a3b8', display: 'flex', alignItems: 'center', gap: '4px', justifyContent: isAdmin ? 'flex-start' : 'flex-end' }}><Clock size={10} /> {formatTime(msg.timestamp)}</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                    <div ref={messagesEndRef} />
+                  </div>
+
+                  <form onSubmit={handleSendLiveMessage} style={{ padding: '15px 20px', backgroundColor: 'white', borderTop: '1px solid #e2e8f0', display: 'flex', gap: '10px' }}>
+                    <input 
+                      type="text" 
+                      value={replyText}
+                      onChange={(e) => setReplyText(e.target.value)}
+                      placeholder={selectedItem.isClosed ? "لا يمكن الرد، المحادثة مغلقة." : "اكتب رسالتك هنا..."}
+                      disabled={selectedItem.isClosed}
+                      style={{ flex: 1, padding: '15px', borderRadius: '25px', border: '1px solid #cbd5e1', outline: 'none', backgroundColor: selectedItem.isClosed ? '#f1f5f9' : '#f8fafc', fontSize: '15px' }}
+                    />
+                    <button 
+                      type="submit" 
+                      disabled={!replyText.trim() || selectedItem.isClosed}
+                      style={{ backgroundColor: (replyText.trim() && !selectedItem.isClosed) ? '#3b82f6' : '#cbd5e1', color: 'white', border: 'none', width: '50px', height: '50px', borderRadius: '50%', cursor: (replyText.trim() && !selectedItem.isClosed) ? 'pointer' : 'not-allowed', display: 'flex', justifyContent: 'center', alignItems: 'center', transition: '0.2s' }}
+                    >
+                      <Send size={20} style={{ transform: 'rotate(180deg)', marginLeft: '2px' }} />
+                    </button>
+                  </form>
+                </>
+              ) : (
+                <div style={{ flex: 1, padding: '30px', overflowY: 'auto', backgroundColor: '#f8fafc' }}>
+                  <div style={{ backgroundColor: 'white', padding: '25px', borderRadius: '16px', border: '1px solid #e2e8f0', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)', marginBottom: '20px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#64748b', marginBottom: '15px', fontSize: '14px' }}>
+                      <Clock size={16} /> <span>تاريخ الرسالة: {formatDate(selectedItem.timestamp)} - {formatTime(selectedItem.timestamp)}</span>
+                    </div>
+                    <h4 style={{ margin: '0 0 10px 0', color: '#1e293b', fontSize: '18px' }}>نص الرسالة:</h4>
+                    <p style={{ margin: 0, color: '#334155', fontSize: '16px', lineHeight: '1.8', backgroundColor: '#f1f5f9', padding: '15px', borderRadius: '10px' }}>
+                      {selectedItem.message || selectedItem.text || selectedItem.content}
+                    </p>
+                  </div>
+
+                  {selectedItem.reply ? (
+                    <div style={{ backgroundColor: '#ecfdf5', padding: '25px', borderRadius: '16px', border: '1px solid #a7f3d0' }}>
+                      <h4 style={{ margin: '0 0 10px 0', color: '#065f46', fontSize: '18px', display: 'flex', alignItems: 'center', gap: '8px' }}><CheckCircle size={20} /> رد الإدارة:</h4>
+                      <p style={{ margin: 0, color: '#064e3b', fontSize: '16px', lineHeight: '1.8' }}>{selectedItem.reply}</p>
+                    </div>
+                  ) : (
+                    <div style={{ backgroundColor: 'white', padding: '25px', borderRadius: '16px', border: '1px solid #e2e8f0' }}>
+                      <h4 style={{ margin: '0 0 15px 0', color: '#1e293b', fontSize: '18px' }}>إرسال رد للعميل:</h4>
+                      <textarea 
+                        value={replyText}
+                        onChange={(e) => setReplyText(e.target.value)}
+                        placeholder="اكتب ردك هنا وسيصل كإشعار للعميل..."
+                        style={{ width: '100%', minHeight: '120px', padding: '15px', borderRadius: '10px', border: '1px solid #cbd5e1', outline: 'none', backgroundColor: '#f8fafc', fontSize: '15px', resize: 'vertical', marginBottom: '15px' }}
+                      />
+                      <button 
+                        onClick={handleReplyToTicket}
+                        disabled={!replyText.trim()}
+                        style={{ width: '100%', backgroundColor: replyText.trim() ? '#2563eb' : '#94a3b8', color: 'white', border: 'none', padding: '15px', borderRadius: '10px', fontSize: '16px', fontWeight: 'bold', cursor: replyText.trim() ? 'pointer' : 'not-allowed', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px' }}
+                      >
+                        <Send size={20} /> إرسال الرد
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+            </>
+          ) : (
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', color: '#94a3b8', backgroundColor: '#f8fafc' }}>
+              <MessageSquare size={60} style={{ marginBottom: '15px', opacity: 0.5 }} />
+              <h2>اختر رسالة أو محادثة للبدء</h2>
+              <p>اضغط على أي عنصر من القائمة لعرض التفاصيل.</p>
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

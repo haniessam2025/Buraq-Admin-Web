@@ -1,237 +1,207 @@
-import { useEffect, useState } from 'react';
-import { collection, query, where, onSnapshot, addDoc, doc, updateDoc } from 'firebase/firestore';
+import { useState, useEffect } from 'react';
+import { collection, query, where, onSnapshot, orderBy, doc, updateDoc } from 'firebase/firestore';
 import { db } from './firebase';
-import { CarFront, MapPinned } from 'lucide-react';
+import { Activity, CarFront, MapPin, CheckCircle, Clock, RefreshCw } from 'lucide-react';
 
 export default function Home() {
-  const [radarTab, setRadarTab] = useState<'rides' | 'captains'>('rides'); // حالة التبويب
-
-  const [activeRides, setActiveRides] = useState<any[]>([]);
   const [onlineCaptains, setOnlineCaptains] = useState<any[]>([]);
-  
-  const [loading, setLoading] = useState(true);
+  const [pendingRides, setPendingRides] = useState<any[]>([]);
+  const [activeRides, setActiveRides] = useState<any[]>([]);
+  const [completedRides, setCompletedRides] = useState<any[]>([]);
+  const [isCleaning, setIsCleaning] = useState(false);
 
   useEffect(() => {
-    // 1️⃣ استدعاء الرحلات النشطة
-    const qRides = query(
-      collection(db, 'rides'),
-      where('status', 'in', ['pending', 'searching', 'accepted', 'captain_arrived', 'passenger_on_the_way', 'waiting_for_scan', 'in_progress'])
-    );
-    const unsubRides = onSnapshot(qRides, (snapshot) => {
-      const ridesData: any[] = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      ridesData.sort((a: any, b: any) => b.timestamp - a.timestamp);
-      setActiveRides(ridesData);
+    const qCaptains = query(collection(db, 'captains'), where('isOnline', '==', true));
+    const unsubCaptains = onSnapshot(qCaptains, (snap) => {
+      setOnlineCaptains(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     });
 
-    // 2️⃣ استدعاء الكباتن الأونلاين (المتاحين حالياً)
-    const qCaptains = query(
-      collection(db, 'captains'),
-      where('isOnline', '==', true) // 👈 السر هنا: بيجيب الكباتن اللي حالتهم أونلاين بس
-    );
-    const unsubCaptains = onSnapshot(qCaptains, (snapshot) => {
-      const capsData: any[] = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      setOnlineCaptains(capsData);
-      setLoading(false);
+    const qRides = query(collection(db, 'rides'), orderBy('timestamp', 'desc'));
+    const unsubRides = onSnapshot(qRides, (snap) => {
+      const allRides = snap.docs.map(d => ({ id: d.id, ...d.data() } as any));
+      
+      setPendingRides(allRides.filter(r => r.status === 'pending' || r.status === 'searching'));
+      setActiveRides(allRides.filter(r => ['accepted', 'captain_arrived', 'passenger_on_the_way', 'waiting_for_scan', 'in_progress'].includes(r.status)));
+      setCompletedRides(allRides.filter(r => r.status === 'completed' || r.status === 'canceled'));
     });
 
     return () => {
-      unsubRides();
       unsubCaptains();
+      unsubRides();
     };
   }, []);
 
-  // 🧹 تنظيف الرادار للرحلات
-  const cleanRadar = async () => {
-    if (!window.confirm('هل أنت متأكد من تنظيف الرادار؟ (سيتم إنهاء الرحلات المعلقة منذ 15 دقيقة)')) return;
-    const now = new Date().getTime();
-    const fifteenMinutes = 15 * 60 * 1000; 
-    let cleanedCount = 0;
+ // 🔄 دالة تحديث الرادار (تعمل ريفريش للبيانات فقط دون إخراج أي كابتن)
+  const handleRefreshAndClean = async () => {
+    setIsCleaning(true);
+    
+    try {
+      // 1. إعادة جلب الكباتن الأونلاين
+      const qCaptains = query(collection(db, 'captains'), where('isOnline', '==', true));
+      const unsubCaptains = onSnapshot(qCaptains, (snap) => {
+        setOnlineCaptains(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      });
 
-    for (const ride of activeRides) {
-      if ((ride.status === 'pending' || ride.status === 'searching') && (now - ride.timestamp > fifteenMinutes)) {
-        try {
-          const rideRef = doc(db, 'rides', ride.id);
-          await updateDoc(rideRef, { status: 'cancelled', cancelReason: 'تم الإلغاء تلقائياً لتجاوز الوقت' });
-          cleanedCount++;
-        } catch (error) { console.error('خطأ:', error); }
-      }
+      // 2. إعادة جلب الرحلات
+      const qRides = query(collection(db, 'rides'), orderBy('timestamp', 'desc'));
+      const unsubRides = onSnapshot(qRides, (snap) => {
+        const allRides = snap.docs.map(d => ({ id: d.id, ...d.data() } as any));
+        
+        setPendingRides(allRides.filter(r => r.status === 'pending' || r.status === 'searching'));
+        setActiveRides(allRides.filter(r => ['accepted', 'captain_arrived', 'passenger_on_the_way', 'waiting_for_scan', 'in_progress'].includes(r.status)));
+        setCompletedRides(allRides.filter(r => r.status === 'completed' || r.status === 'canceled'));
+      });
+      
+      // نوقف الاستماع مؤقتاً عشان نحسس المستخدم إن فيه حاجة حصلت، ثم نشغله تاني
+      setTimeout(() => {
+        unsubCaptains();
+        unsubRides();
+        // ده هيفك التعليقة ويرجع كل البيانات الحقيقية من غير ما يمس الداتابيز
+      }, 500);
+
+    } catch (error) {
+      console.error('خطأ أثناء التحديث:', error);
+      alert('حدث خطأ أثناء محاولة تحديث الرادار.');
+    } finally {
+      setIsCleaning(false);
     }
-    if (cleanedCount > 0) alert(`✅ تم تنظيف ${cleanedCount} رحلة.`);
-    else alert('✨ الرادار نظيف بالفعل!');
   };
 
-  // 🧹 تنظيف رادار الكباتن (تحويل كل الكباتن المعلقين لـ أوفلاين)
-  const cleanCaptains = async () => {
-    if (!window.confirm('هل أنت متأكد من تنظيف قائمة الكباتن؟ (سيتم تحويل حالة جميع الكباتن المعلقين إلى أوفلاين)')) return;
-
-    let cleanedCount = 0;
-    for (const cap of onlineCaptains) {
+  // 🛑 دالة الإلغاء الإجباري الفردي لأي رحلة
+  const forceCancelRide = async (rideId: string) => {
+    if (window.confirm('هل أنت متأكد من إنهاء هذه الرحلة إجبارياً؟')) {
       try {
-        const capRef = doc(db, 'captains', cap.id);
-        await updateDoc(capRef, { isOnline: false });
-        cleanedCount++;
+        await updateDoc(doc(db, 'rides', rideId), { status: 'canceled', cancelReason: 'إلغاء إجباري من الإدارة' });
       } catch (error) {
-        console.error('خطأ في تنظيف حالة الكابتن:', error);
+        alert('حدث خطأ أثناء إلغاء الرحلة.');
       }
     }
-
-    if (cleanedCount > 0) {
-      alert(`✅ تم تنظيف الرادار بنجاح! تم تحويل ${cleanedCount} كابتن معلق إلى أوفلاين.`);
-    } else {
-      alert('✨ القائمة نظيفة بالفعل!');
-    }
   };
 
-  // 🪄 زرار رمي رحلة تجريبية
-  const addTestRide = async () => {
-    await addDoc(collection(db, 'rides'), {
-      name: 'راكب تجريبي', phone: '01012345678', pickupLocation: 'محطة الرمل', destinationLocation: 'سيدي بشر', price: '75',
-      status: 'pending', timestamp: new Date().getTime() - (20 * 60 * 1000), paymentMethod: 'كاش',
-    });
-  };
-
-  // 🪄 زرار رمي كابتن أونلاين تجريبي (عشان تتأكد إنه شغال)
-  const addTestCaptain = async () => {
-    await addDoc(collection(db, 'captains'), {
-      name: 'كابتن محمود (أونلاين تيست)', phone: '01122334455', carModel: 'نيسان صني', carPlate: 'س ج د 1234',
-      isOnline: true, // 👈 دي اللي بتنوره في الرادار
-    });
-  };
-
-  const getStatusBadge = (status: string) => {
-    switch (status) {
-      case 'pending':
-      case 'searching': return <span className="status-badge status-pending">يبحث عن كابتن 🔍</span>;
-      case 'accepted': return <span className="status-badge status-accepted">تم القبول ✅</span>;
-      case 'in_progress': return <span className="status-badge status-progress">الرحلة جارية 🚀</span>;
-      default: return <span className="status-badge">{status}</span>;
+  const getStatusText = (status: string) => {
+    switch(status) {
+      case 'pending': return 'جاري البحث عن كابتن 🔍';
+      case 'accepted': return 'في الطريق للراكب 🚗';
+      case 'captain_arrived': return 'وصل لنقطة الركوب 📍';
+      case 'passenger_on_the_way': return 'الراكب متوجه للكابتن 🚶';
+      case 'waiting_for_scan': return 'بانتظار مسح الكود 📱';
+      case 'in_progress': return 'الرحلة جارية 🚀';
+      default: return status;
     }
   };
 
   return (
-    <div className="card">
+    <div style={{ padding: '20px', maxWidth: '1200px', margin: '0 auto' }}>
       
-      {/* 🚀 أزرار التنقل بين رادار الرحلات ورادار الكباتن */}
-      <div style={{ display: 'flex', gap: '15px', marginBottom: '25px', backgroundColor: '#e2e8f0', padding: '6px', borderRadius: '10px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '25px' }}>
+        <h1 style={{ margin: 0, color: '#1e293b', display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <Activity size={28} color="#2563eb" /> رادار بُرَاق اللحظي 📡
+        </h1>
         <button 
-          onClick={() => setRadarTab('rides')}
-          style={{ flex: 1, padding: '14px', borderRadius: '8px', border: 'none', backgroundColor: radarTab === 'rides' ? '#3b82f6' : 'transparent', color: radarTab === 'rides' ? 'white' : '#334155', fontWeight: 'bold', cursor: 'pointer', fontSize: '16px', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '10px', transition: 'all 0.2s' }}
+          onClick={handleRefreshAndClean}
+          disabled={isCleaning}
+          style={{ 
+            backgroundColor: isCleaning ? '#94a3b8' : '#ef4444', color: 'white', border: 'none', padding: '10px 20px', 
+            borderRadius: '10px', cursor: isCleaning ? 'not-allowed' : 'pointer', fontWeight: 'bold', 
+            display: 'flex', alignItems: 'center', gap: '8px', boxShadow: '0 4px 6px rgba(239, 68, 68, 0.3)' 
+          }}
         >
-          <MapPinned size={20} /> رادار الرحلات النشطة ({activeRides.length})
-        </button>
-        <button 
-          onClick={() => setRadarTab('captains')}
-          style={{ flex: 1, padding: '14px', borderRadius: '8px', border: 'none', backgroundColor: radarTab === 'captains' ? '#10b981' : 'transparent', color: radarTab === 'captains' ? 'white' : '#334155', fontWeight: 'bold', cursor: 'pointer', fontSize: '16px', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '10px', transition: 'all 0.2s' }}
-        >
-          <CarFront size={20} /> الكباتن المتاحين الآن ({onlineCaptains.length})
+          <RefreshCw size={18} className={isCleaning ? 'spin-anim' : ''} /> 
+          {isCleaning ? 'جاري التنظيف...' : 'تحديث وتنظيف الرادار 🧹'}
         </button>
       </div>
 
-      {loading ? (
-        <p style={{ textAlign: 'center', color: '#64748b', padding: '20px' }}>جاري تحميل الرادار...</p>
-      ) : (
-        <>
-          {/* ================= تبويب الرحلات النشطة ================= */}
-          {radarTab === 'rides' && (
-            <div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '15px' }}>
-                <h3 style={{ margin: 0, color: '#1e293b' }}>الرحلات المطلوبة حالياً في الشارع</h3>
-                <div style={{ display: 'flex', gap: '10px' }}>
-                  <button onClick={cleanRadar} style={{ backgroundColor: '#ef4444', color: 'white', border: 'none', padding: '8px 15px', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold' }}>🧹 تنظيف</button>
-                  <button onClick={addTestRide} style={{ backgroundColor: '#e2e8f0', color: '#1e293b', border: 'none', padding: '8px 15px', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold' }}>+ رحلة تيست</button>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '20px', marginBottom: '30px' }}>
+        <div style={{ backgroundColor: '#10b981', padding: '20px', borderRadius: '12px', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'space-between', boxShadow: '0 4px 6px rgba(0,0,0,0.1)' }}>
+          <div>
+            <p style={{ margin: '0 0 5px 0', fontSize: '16px', fontWeight: 'bold' }}>كباتن أونلاين الآن</p>
+            <h2 style={{ margin: 0, fontSize: '32px' }}>{onlineCaptains.length}</h2>
+          </div>
+          <CarFront size={40} opacity={0.8} />
+        </div>
+
+        <div style={{ backgroundColor: '#f59e0b', padding: '20px', borderRadius: '12px', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'space-between', boxShadow: '0 4px 6px rgba(0,0,0,0.1)' }}>
+          <div>
+            <p style={{ margin: '0 0 5px 0', fontSize: '16px', fontWeight: 'bold' }}>رحلات في الانتظار</p>
+            <h2 style={{ margin: 0, fontSize: '32px' }}>{pendingRides.length}</h2>
+          </div>
+          <Clock size={40} opacity={0.8} />
+        </div>
+
+        <div style={{ backgroundColor: '#3b82f6', padding: '20px', borderRadius: '12px', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'space-between', boxShadow: '0 4px 6px rgba(0,0,0,0.1)' }}>
+          <div>
+            <p style={{ margin: '0 0 5px 0', fontSize: '16px', fontWeight: 'bold' }}>رحلات شغالة حالياً</p>
+            <h2 style={{ margin: 0, fontSize: '32px' }}>{activeRides.length}</h2>
+          </div>
+          <MapPin size={40} opacity={0.8} />
+        </div>
+
+        <div style={{ backgroundColor: '#64748b', padding: '20px', borderRadius: '12px', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'space-between', boxShadow: '0 4px 6px rgba(0,0,0,0.1)' }}>
+          <div>
+            <p style={{ margin: '0 0 5px 0', fontSize: '16px', fontWeight: 'bold' }}>إجمالي الرحلات المنتهية</p>
+            <h2 style={{ margin: 0, fontSize: '32px' }}>{completedRides.length}</h2>
+          </div>
+          <CheckCircle size={40} opacity={0.8} />
+        </div>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+        
+        {/* الرحلات الجارية */}
+        <div style={{ backgroundColor: 'white', padding: '20px', borderRadius: '12px', boxShadow: '0 4px 6px rgba(0,0,0,0.05)', border: '1px solid #e2e8f0', maxHeight: '550px', overflowY: 'auto' }}>
+          <h3 style={{ color: '#1e293b', marginTop: 0, marginBottom: '15px', borderBottom: '2px solid #3b82f6', paddingBottom: '10px', display: 'inline-block' }}>تفاصيل الرحلات الشغالة</h3>
+          {activeRides.length === 0 ? <p style={{ color: '#94a3b8', textAlign: 'center', marginTop: '20px' }}>لا توجد رحلات قيد التنفيذ الآن</p> : (
+            activeRides.map(ride => (
+              <div key={ride.id} style={{ backgroundColor: '#eff6ff', padding: '15px', borderRadius: '10px', marginBottom: '10px', border: '1px solid #bfdbfe' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                  <strong style={{ color: '#1e3a8a' }}>الكابتن: {ride.captainName || 'جاري التحديد'}</strong>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span style={{ backgroundColor: '#2563eb', color: 'white', padding: '4px 10px', borderRadius: '6px', fontSize: '12px', fontWeight: 'bold' }}>{getStatusText(ride.status)}</span>
+                    {/* 👈 زر الإلغاء الإجباري لأي رحلة */}
+                    <button 
+                      onClick={() => forceCancelRide(ride.id)} 
+                      title="إلغاء إجباري للرحلة"
+                      style={{ backgroundColor: '#ef4444', color: 'white', border: 'none', borderRadius: '6px', width: '24px', height: '24px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', fontWeight: 'bold' }}
+                    >
+                      ✖
+                    </button>
+                  </div>
                 </div>
+                <div style={{ color: '#334155', fontSize: '14px', marginBottom: '6px', fontWeight: 'bold' }}>الراكب: {ride.name || 'بدون اسم'}</div>
+                <div style={{ color: '#475569', fontSize: '13px', marginBottom: '4px' }}>📍 من: {ride.pickupLocation}</div>
+                <div style={{ color: '#475569', fontSize: '13px' }}>🏁 إلى: {ride.destinationLocation || (ride.destinationsList ? ride.destinationsList.join(' - ') : 'غير محدد')}</div>
               </div>
-
-              {activeRides.length === 0 ? (
-                <p style={{ textAlign: 'center', color: '#64748b', padding: '30px' }}>لا توجد رحلات نشطة الآن.</p>
-              ) : (
-                <div className="table-container">
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>الراكب</th>
-                        <th>من</th>
-                        <th>إلى</th>
-                        <th>الحالة</th>
-                        <th>الوقت</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {activeRides.map((ride) => (
-                        <tr key={ride.id}>
-                          <td>
-                            <div style={{ fontWeight: 'bold' }}>{ride.name || 'غير معروف'}</div>
-                            <div style={{ fontSize: '12px', color: '#64748b' }}>{ride.phone}</div>
-                          </td>
-                          <td>{ride.pickupLocation}</td>
-                          <td>{ride.destinationLocation}</td>
-                          <td>{getStatusBadge(ride.status)}</td>
-                          <td dir="ltr" style={{ textAlign: 'right', fontSize: '13px' }}>
-                            {new Date(ride.timestamp).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' })}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
+            ))
           )}
+        </div>
 
-          {/* ================= تبويب الكباتن المتاحين ================= */}
-          {radarTab === 'captains' && (
-            <div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '15px', alignItems: 'center' }}>
-                <h3 style={{ margin: 0, color: '#1e293b' }}>الكباتن المتصلين بالتطبيق وجاهزين للعمل</h3>
-                <div style={{ display: 'flex', gap: '10px' }}>
-                  <button onClick={cleanCaptains} style={{ backgroundColor: '#ef4444', color: 'white', border: 'none', padding: '8px 15px', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold' }}>🧹 تنظيف المعلقين</button>
-                  <button onClick={addTestCaptain} style={{ backgroundColor: '#e2e8f0', color: '#1e293b', border: 'none', padding: '8px 15px', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold' }}>+ كابتن تيست أونلاين</button>
+        {/* الكباتن المتاحين */}
+        <div style={{ backgroundColor: 'white', padding: '20px', borderRadius: '12px', boxShadow: '0 4px 6px rgba(0,0,0,0.05)', border: '1px solid #e2e8f0', maxHeight: '550px', overflowY: 'auto' }}>
+          <h3 style={{ color: '#1e293b', marginTop: 0, marginBottom: '15px', borderBottom: '2px solid #10b981', paddingBottom: '10px', display: 'inline-block' }}>حالة الكباتن 🟢</h3>
+          {onlineCaptains.length === 0 ? <p style={{ color: '#94a3b8', textAlign: 'center', marginTop: '20px' }}>الجميع أوفلاين</p> : (
+            onlineCaptains.map(cap => (
+              <div key={cap.id} style={{ backgroundColor: '#f0fdf4', padding: '15px', borderRadius: '10px', marginBottom: '10px', border: '1px solid #bbf7d0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <strong style={{ color: '#065f46', display: 'block', marginBottom: '6px', fontSize: '15px' }}>{cap.name || 'بدون اسم'}</strong>
+                  <span style={{ color: '#047857', fontSize: '13px', display: 'block', marginBottom: '4px', fontWeight: 'bold' }} dir="ltr">{cap.phone}</span>
+                  <span style={{ color: '#166534', fontSize: '12px' }}>{cap.vehicleCategory === 'car' ? '🚗 سيارة' : cap.vehicleCategory === 'scooter' ? '🛵 سكوتر' : '🛺 بديل توكتوك'} | {cap.plateNumber || 'بدون لوحة'}</span>
                 </div>
+                <div style={{ backgroundColor: '#10b981', color: 'white', padding: '6px 12px', borderRadius: '8px', fontSize: '12px', fontWeight: 'bold', boxShadow: '0 2px 4px rgba(16, 185, 129, 0.3)' }}>متاح للعمل</div>
               </div>
-
-              {onlineCaptains.length === 0 ? (
-                <p style={{ textAlign: 'center', color: '#64748b', padding: '30px' }}>لا يوجد أي كابتن فاتح التطبيق حالياً.</p>
-              ) : (
-                <div className="table-container">
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>اسم الكابتن</th>
-                        <th>الهاتف</th>
-                        <th>بيانات المركبة</th>
-                        <th>الحالة</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {onlineCaptains.map((cap) => (
-                        <tr key={cap.id}>
-                          <td>
-                            <div style={{ fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                              <img src={cap.profilePic || 'https://via.placeholder.com/40'} alt="صورة" style={{ width: '40px', height: '40px', borderRadius: '50%', objectFit: 'cover' }} />
-                              {cap.name || 'بدون اسم'}
-                            </div>
-                          </td>
-                          <td dir="ltr" style={{ textAlign: 'right', fontWeight: 'bold' }}>{cap.phone || '-'}</td>
-                          <td>
-                            <span style={{ backgroundColor: '#f1f5f9', padding: '5px 10px', borderRadius: '6px', fontSize: '13px', fontWeight: 'bold' }}>
-                              🚗 {cap.carModel || 'غير محدد'} | {cap.carPlate || 'بدون لوحة'}
-                            </span>
-                          </td>
-                          <td>
-                            <span style={{ backgroundColor: '#10b981', color: 'white', padding: '5px 15px', borderRadius: '20px', fontSize: '12px', fontWeight: 'bold' }}>
-                              🟢 متصل الآن
-                            </span>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
+            ))
           )}
-        </>
-      )}
+        </div>
+
+      </div>
+
+      <style>{`
+        .spin-anim {
+          animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+          100% { transform: rotate(360deg); }
+        }
+      `}</style>
     </div>
   );
 }

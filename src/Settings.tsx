@@ -164,7 +164,22 @@ useEffect(() => {
               عند التفعيل، سيتم إيقاف الطلبات الجديدة. الرحلات الجارية ستستمر حتى تنتهي.
             </p>
           </div>
-          <ToggleSwitch enabled={isMaintenanceEnabled} onChange={() => setIsMaintenanceEnabled(!isMaintenanceEnabled)} danger={true} />
+          <ToggleSwitch 
+            enabled={isMaintenanceEnabled} 
+            onChange={async () => {
+              const newValue = !isMaintenanceEnabled;
+              setIsMaintenanceEnabled(newValue);
+              try {
+                // 🚨 إرسال أمر إيقاف/تشغيل التطبيق لقاعدة البيانات في نفس اللحظة
+                await setDoc(doc(db, 'app_settings', 'pricing'), { 
+                  maintenanceMode: newValue 
+                }, { merge: true });
+              } catch (error) {
+                console.error("خطأ في تشغيل وضع الصيانة:", error);
+              }
+            }} 
+            danger={true} 
+          />
         </div>
       </div>
 
