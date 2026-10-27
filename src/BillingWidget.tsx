@@ -1,88 +1,92 @@
 import { useState, useEffect } from 'react';
-import { Server, DollarSign, PieChart, Activity } from 'lucide-react';
+import { getFunctions, httpsCallable } from 'firebase/functions';
+import { Server, DollarSign, Activity, Clock, AlertTriangle } from 'lucide-react';
 
 export default function BillingWidget() {
-  const [billingData, setBillingData] = useState({
-    totalFreeCredit: 300.00, // رصيد جوجل المجاني الترحيبي أو الشهري
-    usedAmount: 0.00,
-    remainingCredit: 300.00,
-    actualCost: 0.00, // المبالغ المطلوبة الدفع لو انتهى المجاني
-    status: 'loading'
+  const [data, setData] = useState({
+    usedAmount: '0.00',
+    remainingCredit: '300.00',
+    totalFreeCredit: 300,
+    actualCost: '0.00'
   });
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
-  // هذه الدالة سيتم ربطها بـ Firebase Cloud Functions لاحقاً لجلب الأرقام الحقيقية
   useEffect(() => {
-    // محاكاة جلب البيانات مؤقتاً لحين انتهاء الـ 24 ساعة الأولى
-    setTimeout(() => {
-      setBillingData({
-        totalFreeCredit: 300.00,
-        usedAmount: 12.50,
-        remainingCredit: 287.50,
-        actualCost: 0.00,
-        status: 'success'
-      });
-    }, 1500);
+    const fetchBilling = async () => {
+      try {
+        const functions = getFunctions();
+        const getBillingData = httpsCallable(functions, 'getBillingData');
+        const response = await getBillingData();
+        if (response.data) {
+          setData(response.data as any);
+        }
+      } catch (err) {
+        console.error(err);
+        setError('تعذر الاتصال بخوادم الفواتير مؤقتاً.');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchBilling();
   }, []);
 
-  if (billingData.status === 'loading') {
-    return <div style={{ padding: '20px', textAlign: 'center', color: '#64748b' }}>جاري الاتصال بخوادم جوجل...</div>;
-  }
-
   return (
-    <div style={{ backgroundColor: '#ffffff', borderRadius: '16px', padding: '20px', borderWidth: '1px', borderColor: '#e2e8f0', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)', direction: 'rtl' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '20px' }}>
-        <Server size={28} color="#3b82f6" />
+    <div style={{ padding: '20px', backgroundColor: 'white', borderRadius: '12px', boxShadow: '0 2px 5px rgba(0,0,0,0.05)', marginBottom: '20px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '10px', marginBottom: '20px' }}>
         <h2 style={{ margin: 0, fontSize: '18px', color: '#1e293b' }}>استهلاك الخوادم (Google Cloud & Firebase)</h2>
+        <Server size={24} color="#3b82f6" />
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '15px' }}>
-        
-        {/* الباقة المجانية الكلية */}
-        <div style={{ backgroundColor: '#f8fafc', padding: '15px', borderRadius: '12px', border: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', gap: '15px' }}>
-          <div style={{ backgroundColor: '#dbeafe', padding: '10px', borderRadius: '10px' }}>
-            <PieChart size={24} color="#2563eb" />
-          </div>
-          <div>
-            <p style={{ margin: 0, fontSize: '13px', color: '#64748b', fontWeight: 'bold' }}>الرصيد المجاني الكلي</p>
-            <p style={{ margin: '5px 0 0 0', fontSize: '20px', color: '#1e293b', fontWeight: '900' }}>${billingData.totalFreeCredit}</p>
-          </div>
+      {loading ? (
+        <div style={{ textAlign: 'center', padding: '40px', color: '#64748b' }}>
+          جاري جلب أرقام الاستهلاك الحية من جوجل... ⏳
         </div>
-
-        {/* ما تم استهلاكه */}
-        <div style={{ backgroundColor: '#fff7ed', padding: '15px', borderRadius: '12px', border: '1px solid #ffedd5', display: 'flex', alignItems: 'center', gap: '15px' }}>
-          <div style={{ backgroundColor: '#ffedd5', padding: '10px', borderRadius: '10px' }}>
-            <Activity size={24} color="#ea580c" />
-          </div>
-          <div>
-            <p style={{ margin: 0, fontSize: '13px', color: '#9a3412', fontWeight: 'bold' }}>تم استهلاك</p>
-            <p style={{ margin: '5px 0 0 0', fontSize: '20px', color: '#ea580c', fontWeight: '900' }}>${billingData.usedAmount}</p>
-          </div>
+      ) : error ? (
+        <div style={{ textAlign: 'center', padding: '20px', color: '#ef4444', backgroundColor: '#fee2e2', borderRadius: '8px' }}>
+          <AlertTriangle size={24} style={{ marginBottom: '10px' }} />
+          <p>{error}</p>
         </div>
-
-        {/* المتبقي من الباقة */}
-        <div style={{ backgroundColor: '#f0fdf4', padding: '15px', borderRadius: '12px', border: '1px solid #dcfce7', display: 'flex', alignItems: 'center', gap: '15px' }}>
-          <div style={{ backgroundColor: '#dcfce7', padding: '10px', borderRadius: '10px' }}>
-            <DollarSign size={24} color="#16a34a" />
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '20px' }}>
+          
+          <div style={{ backgroundColor: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ backgroundColor: '#dbeafe', padding: '12px', borderRadius: '50%' }}>
+              <Clock size={24} color="#3b82f6" />
+            </div>
+            <div style={{ textAlign: 'right' }}>
+              <p style={{ margin: 0, fontSize: '14px', color: '#64748b', fontWeight: 'bold' }}>الرصيد المجاني الكلي</p>
+              <h3 style={{ margin: '5px 0 0 0', fontSize: '24px', color: '#1e293b' }}>${data.totalFreeCredit}</h3>
+            </div>
           </div>
-          <div>
-            <p style={{ margin: 0, fontSize: '13px', color: '#166534', fontWeight: 'bold' }}>المتبقي من المجاني</p>
-            <p style={{ margin: '5px 0 0 0', fontSize: '20px', color: '#16a34a', fontWeight: '900' }}>${billingData.remainingCredit}</p>
-          </div>
-        </div>
 
-      </div>
-
-      {billingData.actualCost > 0 && (
-        <div style={{ marginTop: '20px', backgroundColor: '#fee2e2', padding: '15px', borderRadius: '12px', border: '1px solid #fecaca', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div>
-            <p style={{ margin: 0, fontSize: '14px', color: '#991b1b', fontWeight: 'bold' }}>⚠️ تحذير: تم تجاوز الباقة المجانية</p>
-            <p style={{ margin: '5px 0 0 0', fontSize: '12px', color: '#b91c1c' }}>المبالغ المستحقة للدفع في نهاية الشهر الحالي.</p>
+          <div style={{ backgroundColor: '#fff7ed', border: '1px solid #ffedd5', borderRadius: '12px', padding: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ backgroundColor: '#ffedd5', padding: '12px', borderRadius: '50%' }}>
+              <Activity size={24} color="#ea580c" />
+            </div>
+            <div style={{ textAlign: 'right' }}>
+              <p style={{ margin: 0, fontSize: '14px', color: '#ea580c', fontWeight: 'bold' }}>تم استهلاك</p>
+              <h3 style={{ margin: '5px 0 0 0', fontSize: '24px', color: '#ea580c' }}>${data.usedAmount}</h3>
+            </div>
           </div>
-          <p style={{ margin: 0, fontSize: '22px', color: '#ef4444', fontWeight: '900' }}>${billingData.actualCost}</p>
+
+          <div style={{ backgroundColor: '#f0fdf4', border: '1px solid #dcfce7', borderRadius: '12px', padding: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ backgroundColor: '#dcfce7', padding: '12px', borderRadius: '50%' }}>
+              <DollarSign size={24} color="#16a34a" />
+            </div>
+            <div style={{ textAlign: 'right' }}>
+              <p style={{ margin: 0, fontSize: '14px', color: '#16a34a', fontWeight: 'bold' }}>المتبقي من المجاني</p>
+              <h3 style={{ margin: '5px 0 0 0', fontSize: '24px', color: '#16a34a' }}>${data.remainingCredit}</h3>
+            </div>
+          </div>
+
         </div>
       )}
       
-      <p style={{ textAlign: 'center', fontSize: '11px', color: '#94a3b8', marginTop: '15px' }}>* يتم تحديث البيانات تلقائياً مرة واحدة يومياً من خوادم Google.</p>
+      <div style={{ textAlign: 'center', marginTop: '20px', fontSize: '11px', color: '#94a3b8', direction: 'rtl' }}>
+        * يتم تحديث البيانات تلقائياً، إجمالي المبالغ الفعلية المستحقة (خارج الباقة المجانية): <strong style={{ color: Number(data.actualCost) > 0 ? '#ef4444' : '#10b981' }}>${data.actualCost}</strong>
+      </div>
     </div>
   );
 }
