@@ -108,3 +108,119 @@ table {
     padding: 10px;
   }
 }
+/* =========================================
+   📱 إعدادات شاشات الموبايل للداشبورد
+========================================= */
+@media (max-width: 768px) {
+  /* 1. منع أي عنصر من الخروج بره الشاشة */
+  * {
+    box-sizing: border-box !important;
+  }
+
+  /* 2. تحويل العناصر اللي جنب بعض عشان تنزل تحت بعضها (في الفورم والكروت) */
+  .card > div[style*="display: flex"],
+  form > div[style*="display: flex"] {
+    flex-direction: column !important;
+    gap: 10px !important;
+  }
+
+  /* 3. إصلاح مشكلة الجداول (عشان متكبرش الشاشة، وتسمحلك تسحب الجدول يمين وشمال) */
+  table {
+    display: block !important;
+    overflow-x: auto !important;
+    white-space: nowrap !important;
+    width: 100% !important;
+    border: 0 !important;
+  }
+
+  /* 4. تظبيط النوافذ المنبثقة (Modals) عشان متخرجش بره الشاشة */
+  .modal-content, 
+  .adminMsgModalContent, 
+  .qrModalContent, 
+  .callModalContent, 
+  .ratingModalContent,
+  div[style*="max-width: 90%"] {
+    width: 95% !important;
+    min-width: 95% !important;
+    padding: 15px !important;
+    margin: 10px auto !important;
+    max-height: 90vh !important;
+    overflow-y: auto !important;
+  }
+
+  /* 5. تصغير الهوامش والحواف عشان نستغل مساحة الموبايل صح */
+  .main-content, 
+  .card, 
+  div[style*="padding: 20px"] {
+    padding: 10px !important;
+  }
+
+  /* 6. تصغير العناوين الضخمة */
+  h1, h2 {
+    font-size: 18px !important;
+  }
+  
+  /* 7. تظبيط زراير التابات عشان تنزل تحت بعض لو كتير */
+  div[style*="gap: 15px"] > button {
+    font-size: 14px !important;
+    padding: 10px !important;
+  }
+}
+/* =========================================
+   📱 إعدادات شاشات الموبايل للداشبورد
+========================================= */
+@media (max-width: 768px) {
+  /* 1. منع أي عنصر من الخروج بره الشاشة */
+  * {
+    box-sizing: border-box !important;
+  }
+
+  /* 2. تحويل العناصر اللي جنب بعض عشان تنزل تحت بعضها (في الفورم والكروت) */
+  .card > div[style*="display: flex"],
+  form > div[style*="display: flex"] {
+    flex-direction: column !important;
+    gap: 10px !important;
+  }
+
+  /* 3. إصلاح مشكلة الجداول (عشان متكبرش الشاشة، وتسمحلك تسحب الجدول يمين وشمال) */
+  table {
+    display: block !important;
+    overflow-x: auto !important;
+    white-space: nowrap !important;
+    width: 100% !important;
+    border: 0 !important;
+  }
+
+  /* 4. تظبيط النوافذ المنبثقة (Modals) عشان متخرجش بره الشاشة */
+  .modal-content, 
+  .adminMsgModalContent, 
+  .qrModalContent, 
+  .callModalContent, 
+  .ratingModalContent,
+  div[style*="max-width: 90%"] {
+    width: 95% !important;
+    min-width: 95% !important;
+    padding: 15px !important;
+    margin: 10px auto !important;
+    max-height: 90vh !important;
+    overflow-y: auto !important;
+  }
+
+  /* 5. تصغير الهوامش والحواف عشان نستغل مساحة الموبايل صح */
+  .main-content, 
+  .card, 
+  div[style*="padding: 20px"] {
+    padding: 10px !important;
+  }
+
+  /* 6. تصغير العناوين الضخمة */
+  h1, h2 {
+    font-size: 18px !important;
+  }
+  
+  /* 7. تظبيط زراير التابات عشان تنزل تحت بعض لو كتير */
+  div[style*="gap: 15px"] > button {
+    font-size: 14px !important;
+    padding: 10px !important;
+  }
+}

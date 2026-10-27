@@ -1,3 +1,4 @@
+import BillingWidget from './BillingWidget';
 import { useState, useEffect } from 'react';
 import { collection, query, where, onSnapshot, getDocs, orderBy, doc, updateDoc,  } from 'firebase/firestore';
 import { db } from './firebase';
@@ -219,3 +220,4 @@ export default function Home() {
     </div>
   );
 }
+<BillingWidget />

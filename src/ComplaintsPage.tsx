@@ -37,7 +37,12 @@ export default function ComplaintsPage() {
   // 🧠 الذكاء هنا: تجميع التذاكر لكل مستخدم مع بعض (عشان متبقاش مفرطة)
   const groupedUsers = useMemo(() => {
     const groups: { [key: string]: any } = {};
-    const tabTickets = tickets.filter(t => t.type === activeTab || t.ticketType === activeTab);
+    // التعديل هنا لربط مسمى الموبايل (lost_item) بتاب الداشبورد (lost)
+    const tabTickets = tickets.filter(t => 
+      activeTab === 'lost' 
+        ? (t.type === 'lost_item' || t.ticketType === 'lost' || t.type === 'lost')
+        : (t.type === activeTab || t.ticketType === activeTab)
+    );
     
     tabTickets.forEach(t => {
       // استخدام الـ ID او رقم الهاتف كمفتاح تجميع
